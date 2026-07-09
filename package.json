@@ -4,7 +4,7 @@
   "private": true,
   "description": "Local-first financial modeling engine with a React/shadcn UI, AdonisJS backend, Electron desktop app, and an MCP server — one core engine as the single source of truth.",
   "author": "Sam Crane",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=22"

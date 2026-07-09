@@ -17,15 +17,64 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 The monorepo skeleton is built and verified end-to-end:
 
 - ✅ **Core engine** (`packages/core`): domain types, time-aware formula
-  language, dependency-ordered recompute, **iterative solver for intentional
-  circularity**, validate-on-write operations, `blank` + `saas` templates,
-  statement views. 6 unit tests passing.
+  language (now incl. `exp/ln/sqrt/pow/round/floor/clamp/logistic/scurve`),
+  dependency-ordered recompute, **iterative solver for intentional
+  circularity**, validate-on-write operations, `blank` + `saas` +
+  `bitcoin_treasury` templates, statement views, **persisted charts + dashboard
+  entities**. 34 unit tests passing.
 - ✅ **AdonisJS API** (`apps/api`): HTTP surface over the engine, JSON model
-  store, SQLite via Lucid (actuals/snapshots), single-tenant API-key gate.
+  store, SQLite via Lucid (actuals/snapshots), single-tenant API-key gate,
+  chart/dashboard edit + chart-data routes, timeline/rename/notes/delete edit
+  routes with a `?summary=true` lean-response mode.
 - ✅ **React + shadcn UI** (`apps/web`): model list, scenario switcher, KPI
-  tiles, statement grid, editable driver panel.
-- ✅ **MCP server** (`packages/mcp`): 14 tools over stdio → live API.
+  tiles, statement grid, editable driver panel, **recharts-based chart renderer
+  and an editable dashboard** (add / remove / reorder / resize widgets), plus a
+  **Commodities view** (`/commodities`) with an interactive price-model preview.
+- ✅ **MCP server** (`packages/mcp`): 23 tools over stdio → live API (incl.
+  chart + dashboard tools).
 - ✅ **Electron shell** (`apps/desktop`): forks the API locally, loads the UI.
+
+**Bitcoin treasury template — fidelity note.** The `bitcoin_treasury` template
+models an MSTR/ASST-style company as a *levered residual claim* on a crypto
+reserve funded by perpetual preferred (reserve, preferred notional + dividend
+coverage, cash buffer, common ATM dilution, a native **debt line** — straight +
+convertible — subtracting from NAV, NAV-to-common, mNAV mean-reversion, implied
+leverage). It is a faithful **first-order** model: the amplification cap and
+issuance S-curve are declarative formulas, but discrete cycle/capitulation events
+from the reference are expressed via **scenario overrides** (see the Drawdown
+scenario), not new engine control flow. It ships with a curated default dashboard
+(headline tiles, four treasury charts, KPI table).
+
+**Model-editing controls.** Models are editable after creation, not just
+appendable: set the timeline period count up **or down** (`setPeriods`, trim
+allowed) and granularity; rename drivers/items/scenarios (renames cascade through
+referencing formulas so nothing dangles) and edit their notes; delete drivers
+(ref-safe), scenarios (never the last), and whole models. Every edit returns a
+structured `ChangeSummary`, and adapters offer a `?summary=true` lean response so
+a batch of edits isn't forced to echo the full model each call.
+
+**Commodity price models.** Commodities are a first-class, extensible registry
+(`COMMODITIES`, mirroring `TEMPLATES`) of pure price-model generators
+(`timeline → number[]`); generation is the only place calendar dates are read, so
+the engine stays index-based. Bitcoin ships with a **power-law trend × halving-cycle
+oscillation** model (Santostasi/Burger corridor fit; `amplitude 0.55` calibrated to
+the reference model's ~47% drawdown), date-anchored to genesis, with a spot anchor
+that also **infers the cycle phase** (a below-trend spot starts in the trough and
+arcs up) and support/fair/resistance bands. A driver can be **bound** to a model
+(`priceModel`), so its series is generated and **regenerated on timeline edits**;
+the `bitcoin_treasury` template's `btc_price` is bound to it out of the box, with
+Drawdown and Power-law support scenarios. Exposed via `GET /commodities`, a `GET /commodities/:c/:m/preview`
+read, bind / regenerate routes, and the `list_commodities` / `set_commodity_price` /
+`regenerate_commodity_price` MCP tools. A read-only **Commodities view** in the web
+app browses the registry with an interactive preview of each model's price path, and
+the treasury dashboard plots **BTC price over time** directly. Commodity assumptions
+also live **per scenario**: each scenario can carry its own price-model params
+(`Scenario.priceModels`), so Base / Drawdown / a custom scenario each generate their
+own BTC path — edited in a scenario-scoped **Commodity assumptions** panel on the
+model workspace (via `set_scenario_commodity_price` / a scenario-commodity route),
+generated at edit time and stored as the scenario's override so the engine is
+unchanged. The registry is the path to metals, oil, and other commodities so mining
+companies can be modeled the same way.
 
 **What "done" does not yet mean:** the engine has one real template, the UI is
 read-mostly, there is no versioning/diff surface, no Excel export, and packaging
@@ -88,8 +137,41 @@ everywhere, precedent tracing, more templates.
 ### 2.1 Scenarios & analysis 🟡
 - 🟡 Scenario overlays + `compare_scenarios` exist in the engine.
 - ⬜ Scenario **manager UI** (create/duplicate/edit overrides, side-by-side view).
-- ⬜ **Sensitivity tables** (1- and 2-variable data tables) — engine + UI.
+- 🟡 **Sensitivity tables** — engine `sweepDriver`/`tornado` + `generateScenarios`
+  ship (API `/sweep`, `/tornado`; MCP `tornado`). UI data tables still ⬜.
 - ⬜ **Goal seek / solver** — find the driver value that hits a target output.
+
+### 2.1a Backtesting & the model-improvement loop 🟡 (engine + adapters ✅, UI ⬜)
+The handbook's core discipline (`docs/references/financial_modeling_handbook/`):
+turn a plausible-looking model into a trustworthy one by testing it against
+reality. Engine-first, per the architecture rule; the web surface is the only
+remaining piece.
+- ✅ **Forecast-accuracy metrics** — `accuracy.ts`: MAE, RMSE, MAPE, mean signed
+  bias, reported together (one number hides the failure mode). `scoreForecast`
+  + API `/score` + MCP `score_forecast`.
+- ✅ **First-class actuals** — the dormant `actuals` SQLite table is wired
+  (`ActualsStore`): ingest via `POST /actuals`, CSV import with column→item
+  mapping, and a `/forecast-actual` join. MCP `import_actuals`.
+- ✅ **Point-in-time (as-of) compute** — `computeModel({ asOf, actuals })` freezes
+  known history and forecasts forward, with a **look-ahead-bias guard** (a
+  forecast that reaches forward to an observed item is rejected).
+- ✅ **Backtesting** — `backtest`, out-of-sample **holdout split**, and
+  **walk-forward** (anchored + rolling). API `/backtest`, `/walkforward`; MCP
+  `run_backtest`, `walk_forward`. The out-of-sample result is the referee.
+- ✅ **Calibration** — `calibrate` fits drivers to actuals (bounded grid +
+  coordinate descent), returns a **candidate only** (applied via the existing
+  assumption preview/accept flow), ranks residuals as a structural to-do list,
+  and flags when the structure — not the inputs — is the likely fault. API
+  `/calibrate`; MCP `calibrate`.
+- ⬜ **UI surface** — forecast-vs-actual chart, tornado chart, calibration diff.
+  **Deferred to a dedicated follow-up OpenSpec change** (tracked as task 6.4 of
+  `add-backtesting-improvement-loop`): the engine + API + MCP loop is complete and
+  fully driveable through Claude today, so the web surface is a standalone
+  visualization/UX effort. It rides on the existing recharts renderer
+  (`ChartView`) and `/backtest`, `/walkforward`, `/tornado`, `/forecast-actual`,
+  `/calibrate` endpoints — no new engine work. Propose it with `/opsx:propose`
+  when the loop's MCP ergonomics have been exercised enough to know which views
+  matter most (likely: a forecast-vs-actual variance band first).
 
 ### 2.2 Versioning, audit & provenance ⬜
 Currently only file snapshots exist.
@@ -176,7 +258,10 @@ same server + JSON/SQLite storage as local, no multi-tenant data model.
 - ⬜ Seed script + fixture models for local dev.
 
 ### Security & privacy (PRD §9.6)
-- ⬜ Confirm **no network egress** by default; document the trust boundary.
+- ⬜ Confirm **no network egress** by default; document the trust boundary. The
+  backtesting loop (§2.1a) does not change this posture: all analysis is
+  read-only over the local engine and **actuals stay local in SQLite** alongside
+  the model store — nothing is egressed. CSV actuals are ingested locally.
 - ⬜ Full audit trail of AI actions (ties to §2.2).
 - ⬜ Secrets handling for connectors (§3); per-source opt-in + logging.
 

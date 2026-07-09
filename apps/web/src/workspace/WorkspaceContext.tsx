@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import type { ReactNode } from 'react'
 import type { Model, Statement, StatementKind, ValidationIssue } from '@greenthumb/core'
 
-import { api, type ModelListItem, type TemplateInfo } from '@/lib/api'
+import { api, type EditResult, type ModelListItem, type TemplateInfo } from '@/lib/api'
 
 /**
  * The model-workspace state, lifted out of the page so the persistent sidebar
@@ -25,9 +25,13 @@ interface WorkspaceValue {
   issues: ValidationIssue[]
   busy: boolean
   errorCount: number
+  editing: boolean
+  setEditing: (v: boolean) => void
   createModel: (type: TemplateInfo['type'], label: string) => Promise<void>
   deleteModel: (id: string) => Promise<void>
   setScalar: (driverId: string, value: number) => Promise<void>
+  /** Fold an edit result (from a chart/dashboard mutation) back into state. */
+  applyEdit: (res: EditResult) => void
 }
 
 const WorkspaceContext = createContext<WorkspaceValue | null>(null)
@@ -42,6 +46,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [statement, setStatement] = useState<Statement | null>(null)
   const [issues, setIssues] = useState<ValidationIssue[]>([])
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const refreshModels = useCallback(async () => {
     const list = await api.listModels()
@@ -125,6 +130,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [refreshModels]
   )
 
+  const applyEdit = useCallback((res: EditResult) => {
+    setModel(res.model)
+    setIssues(res.issues)
+  }, [])
+
   const errorCount = issues.filter((i) => i.severity === 'error').length
 
   const value: WorkspaceValue = {
@@ -141,9 +151,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     issues,
     busy,
     errorCount,
+    editing,
+    setEditing,
     createModel,
     deleteModel,
     setScalar,
+    applyEdit,
   }
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>

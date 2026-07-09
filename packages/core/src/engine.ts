@@ -18,9 +18,22 @@ export interface SolveOptions {
   maxIterations?: number;
   /** Absolute convergence tolerance on formula values between iterations. */
   epsilon?: number;
+  /**
+   * Point-in-time cutover (handbook §3). When set, stored actuals for periods
+   * `≤ asOf` are substituted into item series (locking known history) and
+   * periods `> asOf` are forecast forward from that frozen state. Requires
+   * `actuals`. A forecast that reaches *forward* in time (via `lead`) to an
+   * actuals-bearing item is recorded as a look-ahead-bias violation.
+   */
+  asOf?: number;
+  /** Observed actuals keyed by item id: `itemId -> (number|null)[]`. */
+  actuals?: Record<string, (number | null)[]>;
 }
 
-const DEFAULTS: Required<SolveOptions> = { maxIterations: 100, epsilon: 1e-6 };
+const DEFAULTS = { maxIterations: 100, epsilon: 1e-6 } as const;
+
+const isFinite = (v: number | null | undefined): v is number =>
+  v !== null && v !== undefined && Number.isFinite(v);
 
 interface Symbol {
   kind: "item" | "driver";
@@ -44,10 +57,24 @@ export function computeModel(
   options: SolveOptions = {},
 ): ComputedModel {
   const { maxIterations, epsilon } = { ...DEFAULTS, ...options };
+  const { asOf, actuals } = options;
   const periods = model.timeline.periods;
 
   // Symbol table: reference item/driver by human name or id. Items win ties.
   const symbols = buildSymbolTable(model);
+
+  // Which items carry any actuals (for the look-ahead-bias guard).
+  const hasActuals = (itemId: string): boolean => {
+    const a = actuals?.[itemId];
+    return !!a && a.some(isFinite);
+  };
+
+  // Substitute a stored actual for period p ≤ asOf, if present.
+  const lockedActual = (itemId: string, p: number): number | undefined => {
+    if (asOf === undefined || p > asOf) return undefined;
+    const v = actuals?.[itemId]?.[p];
+    return isFinite(v) ? v : undefined;
+  };
 
   // Driver series under this scenario (base values with per-period overrides).
   const driverSeries = new Map<string, number[]>();
@@ -73,9 +100,23 @@ export function computeModel(
         samePeriodDeps: samePeriodRefs(ast),
       });
     }
+    // Lock known actuals into non-formula items up front (formulas are locked
+    // inside the iteration so they stay pinned each pass).
+    if (asOf !== undefined && def.kind !== "formula") {
+      for (let p = 0; p <= Math.min(asOf, periods - 1); p++) {
+        const a = lockedActual(item.id, p);
+        if (a !== undefined) series[item.id]![p] = a;
+      }
+    }
   }
 
   const order = orderFormulas(compiled, symbols);
+
+  // Look-ahead-bias guard: during an as-of compute, a read that reaches *forward*
+  // in time (period > the period being evaluated) to an actuals-bearing item is a
+  // causality violation. `currentEvalPeriod` tracks the period under evaluation.
+  let currentEvalPeriod = 0;
+  const lookAhead = new Set<string>();
 
   // Resolver reads the live series/drivers (Gauss-Seidel — later items in a
   // pass see values updated earlier in the same pass).
@@ -84,6 +125,9 @@ export function computeModel(
     const sym = symbols.get(name);
     if (!sym) return 0; // dangling refs are reported by validation, not here
     if (sym.kind === "driver") return driverSeries.get(sym.id)?.[period] ?? 0;
+    if (asOf !== undefined && period > currentEvalPeriod && hasActuals(sym.id)) {
+      lookAhead.add(sym.id); // forecast reaching forward into an observed item
+    }
     return series[sym.id]?.[period] ?? 0;
   };
   const ctx = { resolve, periods };
@@ -96,9 +140,11 @@ export function computeModel(
     iterations = iter + 1;
     let maxDelta = 0;
     for (let p = 0; p < periods; p++) {
+      currentEvalPeriod = p;
       for (const c of order) {
         const target = series[c.itemId]!;
-        const next = evaluate(c.ast, p, ctx);
+        const locked = lockedActual(c.itemId, p);
+        const next = locked !== undefined ? locked : evaluate(c.ast, p, ctx);
         const delta = Math.abs(next - target[p]!);
         if (delta > maxDelta) maxDelta = delta;
         target[p] = next;
@@ -110,7 +156,9 @@ export function computeModel(
     }
   }
 
-  return { scenarioId: scenario.id, series, converged, iterations };
+  const result: ComputedModel = { scenarioId: scenario.id, series, converged, iterations };
+  if (asOf !== undefined && lookAhead.size > 0) result.lookAhead = [...lookAhead];
+  return result;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,6 @@
 import type {
+  Chart,
+  ChartData,
   ComputedModel,
   Model,
   ModelMeta,
@@ -6,6 +8,7 @@ import type {
   Statement,
   StatementKind,
   ValidationIssue,
+  Widget,
 } from '@greenthumb/core'
 
 import { resolveTarget } from './apiTarget'
@@ -30,6 +33,20 @@ function target() {
 export type ServerInfo = { mode: 'local' | 'cloud'; requiresApiKey: boolean; version: string }
 export type ModelListItem = ModelMeta & { id: string }
 export type TemplateInfo = { type: ModelType; label: string; description: string }
+export type PriceModelInfo = {
+  id: string
+  label: string
+  defaultParams: Record<string, number | string>
+}
+export type CommodityInfo = { id: string; label: string; models: PriceModelInfo[] }
+export type CommodityPreview = {
+  commodityId: string
+  modelId: string
+  periods: number
+  granularity: string
+  series: number[]
+  labels: string[]
+}
 export type EditResult = { model: Model; issues: ValidationIssue[]; ok: boolean }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -81,6 +98,19 @@ export const api = {
   info: () => req<ServerInfo>('/info'),
   listModels: () => req<ModelListItem[]>('/models'),
   templates: () => req<TemplateInfo[]>('/templates'),
+  commodities: () => req<CommodityInfo[]>('/commodities'),
+  commodityPreview: (
+    commodityId: string,
+    modelId: string,
+    params?: Record<string, number | string>
+  ) => {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(params ?? {})) qs.set(k, String(v))
+    const q = qs.toString()
+    return req<CommodityPreview>(
+      `/commodities/${commodityId}/${modelId}/preview${q ? `?${q}` : ''}`
+    )
+  },
   createModel: (input: { name: string; type: ModelType }) =>
     req<{ model: Model; issues: ValidationIssue[] }>('/models', {
       method: 'POST',
@@ -114,5 +144,47 @@ export const api = {
     req<{ snapshotted: boolean }>(`/models/${id}/snapshot`, {
       method: 'POST',
       body: JSON.stringify({ label }),
+    }),
+
+  // --- Charts & dashboard --------------------------------------------------
+  chartData: (id: string, chartId: string, scenario?: string) =>
+    req<ChartData>(
+      `/models/${id}/charts/${chartId}/data${scenario ? `?scenario=${scenario}` : ''}`
+    ),
+  addChart: (id: string, chart: Omit<Chart, 'id'>) =>
+    req<EditResult>(`/models/${id}/charts`, { method: 'POST', body: JSON.stringify(chart) }),
+  updateChart: (id: string, chartId: string, patch: Partial<Omit<Chart, 'id'>>) =>
+    req<EditResult>(`/models/${id}/charts/${chartId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  removeChart: (id: string, chartId: string) =>
+    req<EditResult>(`/models/${id}/charts/${chartId}`, { method: 'DELETE' }),
+  addWidget: (id: string, widget: Omit<Widget, 'id'>) =>
+    req<EditResult>(`/models/${id}/dashboard/widgets`, {
+      method: 'POST',
+      body: JSON.stringify(widget),
+    }),
+  setScenarioCommodityPrice: (
+    id: string,
+    scenarioId: string,
+    driverId: string,
+    binding: { commodity: string; model: string; params: Record<string, number | string> }
+  ) =>
+    req<EditResult>(`/models/${id}/scenarios/${scenarioId}/drivers/${driverId}/commodity`, {
+      method: 'PUT',
+      body: JSON.stringify(binding),
+    }),
+  updateWidget: (id: string, widgetId: string, patch: Partial<Omit<Widget, 'id'>>) =>
+    req<EditResult>(`/models/${id}/dashboard/widgets/${widgetId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  removeWidget: (id: string, widgetId: string) =>
+    req<EditResult>(`/models/${id}/dashboard/widgets/${widgetId}`, { method: 'DELETE' }),
+  reorderDashboard: (id: string, order: string[]) =>
+    req<EditResult>(`/models/${id}/dashboard/order`, {
+      method: 'PUT',
+      body: JSON.stringify({ order }),
     }),
 }

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutGrid, Plug, Plus, Sprout, Trash2 } from 'lucide-react'
+import { Boxes, LayoutGrid, Plug, Plus, Sprout, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { AccountSection } from '@/components/AccountSection'
@@ -41,6 +41,7 @@ export function Sidebar() {
 
       <nav className="flex flex-col gap-0.5 border-b p-2">
         <SidebarLink to="/" icon={<LayoutGrid className="size-4" />} label="Workspace" end />
+        <SidebarLink to="/commodities" icon={<Boxes className="size-4" />} label="Commodities" />
         <SidebarLink to="/settings/mcp" icon={<Plug className="size-4" />} label="Connect MCP" />
       </nav>
 

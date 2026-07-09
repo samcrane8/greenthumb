@@ -1,10 +1,13 @@
-import { AlertTriangle, CheckCircle2, LayoutGrid, Loader2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, LayoutGrid, Loader2, Pencil, Plus } from 'lucide-react'
 import type { StatementKind } from '@greenthumb/core'
 
 import { Badge } from '@/components/ui/badge'
 import { StatTiles } from '@/components/StatTiles'
 import { StatementGrid } from '@/components/StatementGrid'
+import { DashboardView } from '@/components/DashboardView'
 import { DriverPanel } from '@/components/DriverPanel'
+import { CommodityScenarioPanel } from '@/components/CommodityScenarioPanel'
+import { api } from '@/lib/api'
 import { useWorkspace } from '@/workspace/WorkspaceContext'
 import { cn } from '@/lib/utils'
 
@@ -15,23 +18,25 @@ const STATEMENTS: { kind: StatementKind; label: string }[] = [
   { kind: 'kpi', label: 'KPIs' },
 ]
 
-/** The model workspace — statements, scenarios, drivers. Mounted at `/`. */
+/** The model workspace — dashboard (or statements), scenarios, drivers. Mounted at `/`. */
 export default function WorkspacePage() {
   const {
     templates,
     model,
     scenarioId,
     setScenarioId,
-    kind,
-    setKind,
-    statement,
     issues,
     busy,
     errorCount,
+    editing,
+    setEditing,
     setScalar,
+    applyEdit,
   } = useWorkspace()
 
   if (!model) return <EmptyState hasTemplates={templates.length > 0} />
+
+  const hasDashboard = !!model.dashboard && model.dashboard.widgets.length > 0
 
   return (
     <div className="view-enter mx-auto max-w-[1400px] space-y-5 p-6">
@@ -49,6 +54,19 @@ export default function WorkspacePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {hasDashboard && (
+            <button
+              onClick={() => setEditing(!editing)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm font-medium transition-colors',
+                editing
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              )}
+            >
+              <Pencil className="size-3.5" /> {editing ? 'Done' : 'Edit layout'}
+            </button>
+          )}
           {errorCount === 0 ? (
             <Badge variant="success">
               <CheckCircle2 className="size-3" /> Valid
@@ -84,33 +102,19 @@ export default function WorkspacePage() {
         </div>
       </div>
 
-      {statement && <StatTiles statement={statement} />}
+      {editing && hasDashboard && <AddWidgetBar />}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-3">
-          {/* Statement tabs */}
-          <div className="flex gap-0.5 rounded-md border bg-card p-0.5">
-            {STATEMENTS.map((s) => (
-              <button
-                key={s.kind}
-                onClick={() => setKind(s.kind)}
-                className={cn(
-                  'flex-1 rounded-[3px] px-3 py-1.5 text-sm font-medium transition-colors',
-                  kind === s.kind
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-          {statement && statement.rows.length > 0 ? (
-            <StatementGrid model={model} statement={statement} />
+          {hasDashboard ? (
+            <DashboardView
+              model={model}
+              scenarioId={scenarioId}
+              editing={editing}
+              onEdit={applyEdit}
+            />
           ) : (
-            <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
-              No {kind.replace('_', ' ')} rows in this model.
-            </div>
+            <StatementFallback />
           )}
 
           {errorCount > 0 && (
@@ -127,9 +131,87 @@ export default function WorkspacePage() {
           )}
         </div>
 
-        <DriverPanel model={model} onSetScalar={setScalar} busy={busy} />
+        <div className="space-y-5">
+          <CommodityScenarioPanel />
+          <DriverPanel model={model} onSetScalar={setScalar} busy={busy} />
+        </div>
       </div>
     </div>
+  )
+}
+
+/** Edit-mode toolbar: append a widget to the dashboard. */
+function AddWidgetBar() {
+  const { model, applyEdit } = useWorkspace()
+  if (!model) return null
+  const add = async (input: Parameters<typeof api.addWidget>[1]) => {
+    try {
+      applyEdit(await api.addWidget(model.id, input))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+  const firstChart = model.charts?.[0]
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2.5">
+      <span className="eyebrow mr-1">Add widget</span>
+      {firstChart && (
+        <AddBtn onClick={() => add({ kind: 'chart', refId: firstChart.id, layout: { x: 0, y: 0, w: 6, h: 3 } })}>
+          Chart
+        </AddBtn>
+      )}
+      <AddBtn onClick={() => add({ kind: 'statement', refId: 'kpi', title: 'KPI table', layout: { x: 0, y: 0, w: 12, h: 4 } })}>
+        KPI table
+      </AddBtn>
+      <AddBtn onClick={() => add({ kind: 'note', text: 'New note', title: 'Note', layout: { x: 0, y: 0, w: 4, h: 2 } })}>
+        Note
+      </AddBtn>
+    </div>
+  )
+}
+
+function AddBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1 rounded-md border px-2.5 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    >
+      <Plus className="size-3.5" /> {children}
+    </button>
+  )
+}
+
+/** Fallback for models without a dashboard: the classic statement grid + tabs. */
+function StatementFallback() {
+  const { model, statement, kind, setKind } = useWorkspace()
+  if (!model) return null
+  return (
+    <>
+      {statement && <StatTiles statement={statement} />}
+      <div className="flex gap-0.5 rounded-md border bg-card p-0.5">
+        {STATEMENTS.map((s) => (
+          <button
+            key={s.kind}
+            onClick={() => setKind(s.kind)}
+            className={cn(
+              'flex-1 rounded-[3px] px-3 py-1.5 text-sm font-medium transition-colors',
+              kind === s.kind
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {statement && statement.rows.length > 0 ? (
+        <StatementGrid model={model} statement={statement} />
+      ) : (
+        <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+          No {kind.replace('_', ' ')} rows in this model.
+        </div>
+      )}
+    </>
   )
 }
 

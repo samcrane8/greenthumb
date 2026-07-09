@@ -7,8 +7,19 @@
  * slot into the same registry.
  */
 
+import { generatePrice } from "./commodities.js";
 import { newId } from "./id.js";
-import type { Driver, LineItem, Model, ModelType, Scenario, Timeline } from "./types.js";
+import type {
+  Chart,
+  Dashboard,
+  Driver,
+  LineItem,
+  Model,
+  ModelType,
+  Scenario,
+  Timeline,
+  Widget,
+} from "./types.js";
 
 export interface CreateModelOptions {
   name: string;
@@ -133,6 +144,246 @@ export function saasModel(options: CreateModelOptions): Model {
   return model;
 }
 
+/**
+ * A Bitcoin treasury company (e.g. Strategy/MSTR, Strive/ASST) modeled as a
+ * LEVERED RESIDUAL CLAIM on a BTC reserve funded by perpetual preferred stock.
+ *
+ * The common equity's NAV = reserve + cash + other holdings − preferred notional.
+ * Because the preferred claim is fixed, common NAV moves faster than BTC in both
+ * directions (implied leverage > 1x). Preferred issuance follows an S-curve ramp,
+ * capped so notional never exceeds `amplification_cap × reserve`; its dividend is
+ * a cash leak; common ATM issuance dilutes shares. mNAV (the premium/discount on
+ * the levered claim) mean-reverts toward a target. Quarterly, 4-year horizon.
+ *
+ * Monetary series are in $millions; share counts in millions; prices in $.
+ * This is a faithful FIRST-ORDER model — discrete cycle/capitulation events from
+ * the reference are expressed via scenario overrides, not engine control flow.
+ */
+export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
+  const model = shell(options, "bitcoin_treasury");
+  model.timeline = defaultTimeline({
+    granularity: "quarterly",
+    periods: 16,
+    ...options.timeline,
+  });
+  const periods = model.timeline.periods;
+
+  const driver = (
+    name: string,
+    unit: Driver["unit"],
+    shape: Driver["shape"],
+    values: number[],
+    notes?: string,
+  ): Driver => ({ id: newId("drv"), name, unit, shape, values, notes });
+
+  const drivers: Driver[] = [
+    // Starting balance-sheet state (ASST @ May 2026, from 8-K filings).
+    driver("btc_held_start", "count", "scalar", [16500], "BTC on the treasury at start"),
+    driver("preferred_start", "currency", "scalar", [576], "Perpetual preferred notional at start ($M)"),
+    driver("cash_start", "currency", "scalar", [93], "Cash buffer at start ($M)"),
+    driver("other_holdings", "currency", "scalar", [50], "Genuine other holdings, e.g. STRC ($M), held flat"),
+    driver("debt_notional", "currency", "scalar", [0], "Straight + convertible debt notional ($M); subtracts from common NAV"),
+    driver("shares_start", "count", "scalar", [75.77], "Common shares outstanding at start (M)"),
+    driver("mnav_start", "ratio", "scalar", [1.63], "Starting common mNAV (premium on the levered claim)"),
+    // Market + capital-raise assumptions (the tunable levers).
+    driver("issuance_start", "currency", "scalar", [910], "Preferred issuance at start of ramp ($M/qtr)"),
+    driver("issuance_peak", "currency", "scalar", [4550], "Preferred issuance at peak of ramp ($M/qtr)"),
+    driver("issuance_ramp", "count", "scalar", [7], "S-curve ramp length (quarters)"),
+    driver("div_rate", "percent", "scalar", [0.13], "Preferred dividend rate (annual)"),
+    driver("atm_raise", "currency", "scalar", [390], "Common ATM issuance ($M/qtr)"),
+    driver("amplification_cap", "ratio", "scalar", [0.5], "Max preferred notional / reserve"),
+    driver("mnav_target", "ratio", "scalar", [1.5], "Long-run mNAV target"),
+    driver("mnav_reversion", "count", "scalar", [5], "mNAV mean-reversion speed (quarters)"),
+  ];
+
+  // BTC price is a COMMODITY-PRICED driver: the Bitcoin power-law trend plus
+  // halving-cycle oscillation, spot-anchored to today's spot (~$62.85k, below the
+  // power-law fair value — so the path starts in the trough and arcs up). Binding
+  // it means resizing the timeline regenerates the price for the new horizon.
+  const BTC_SPOT = 62850;
+  const btcParams = { spot: BTC_SPOT, band: "fair" } as const;
+  const btcPriceValues = generatePrice("bitcoin", "powerlaw", model.timeline, btcParams);
+  drivers.push({
+    id: newId("drv"),
+    name: "btc_price",
+    unit: "currency",
+    shape: "series",
+    values: btcPriceValues,
+    notes: "BTC price — power-law trend + halving-cycle oscillation, spot-anchored",
+    priceModel: { commodity: "bitcoin", model: "powerlaw", params: { ...btcParams } },
+  });
+
+  const item = (
+    name: string,
+    category: LineItem["category"],
+    unit: LineItem["unit"],
+    definition: LineItem["definition"],
+    section?: string,
+  ): LineItem => ({ id: newId("itm"), name, category, unit, section, definition });
+
+  const f = (
+    name: string,
+    category: LineItem["category"],
+    unit: LineItem["unit"],
+    expression: string,
+    section?: string,
+  ): LineItem => item(name, category, unit, { kind: "formula", expression }, section);
+
+  // period_index: 0,1,2,… as data, so scurve(period_index, …) can shape the ramp.
+  // Category "other" keeps it out of every statement view.
+  const periodIndex = Array.from({ length: periods }, (_, i) => i);
+
+  const items: LineItem[] = [
+    item("period_index", "other", "count", { kind: "input", values: periodIndex }, "_internal"),
+
+    // btc_price is a commodity-priced driver (see above), referenced by name here.
+    // Reserve value in $M. Depends on btc_held (same period) -> solved iteratively.
+    f("reserve", "kpi", "currency", "btc_held * btc_price / 1000000", "reserve"),
+
+    // Preferred issuance S-curve, capped by the amplification headroom.
+    f("preferred_raise_target", "other", "currency",
+      "scurve(period_index, issuance_start, issuance_peak, issuance_ramp)", "financing"),
+    f("prev_preferred", "other", "currency",
+      "if(prior(preferred_notional) == 0, preferred_start, prior(preferred_notional))", "financing"),
+    f("preferred_raise", "other", "currency",
+      "clamp(preferred_raise_target, 0, max(0, amplification_cap * reserve - prev_preferred))", "financing"),
+    f("preferred_notional", "kpi", "currency", "prev_preferred + preferred_raise", "financing"),
+    f("preferred_dividend", "kpi", "currency", "preferred_notional * div_rate / 4", "financing"),
+    f("div_coverage", "kpi", "ratio",
+      "if(preferred_dividend == 0, 0, preferred_raise / preferred_dividend)", "financing"),
+
+    // Cash buffer absorbs any dividend shortfall (cumulative, so it never resets).
+    f("dividend_shortfall", "other", "currency", "max(0, preferred_dividend - preferred_raise)", "financing"),
+    f("cash", "kpi", "currency", "max(0, cash_start - cumulative(dividend_shortfall))", "reserve"),
+
+    // BTC purchases from net preferred capital + ATM, both buying at spot.
+    f("net_preferred_capital", "other", "currency", "max(0, preferred_raise - preferred_dividend)", "reserve"),
+    f("btc_bought", "other", "count",
+      "(net_preferred_capital + atm_raise) * 1000000 / btc_price", "reserve"),
+    f("btc_held", "kpi", "count",
+      "if(prior(btc_held) == 0, btc_held_start, prior(btc_held)) + btc_bought", "reserve"),
+
+    // Common share dilution from the ATM (raise $M / price $ = shares in millions).
+    f("new_shares", "other", "count", "atm_raise / max(asst_price, 1)", "equity"),
+    f("common_shares", "kpi", "count",
+      "if(prior(common_shares) == 0, shares_start, prior(common_shares)) + new_shares", "equity"),
+
+    // The levered residual claim.
+    f("nav_to_common", "kpi", "currency",
+      "reserve + cash + other_holdings - debt_notional - preferred_notional", "equity"),
+    f("nav_per_share", "kpi", "currency", "nav_to_common / common_shares", "equity"),
+    f("mnav", "kpi", "ratio",
+      "if(prior(mnav) == 0, mnav_start, prior(mnav) + (mnav_target - prior(mnav)) / mnav_reversion)", "equity"),
+    f("asst_price", "kpi", "currency", "max(nav_per_share, 0) * mnav", "equity"),
+    f("asst_mcap", "kpi", "currency", "asst_price * common_shares", "equity"),
+    f("implied_leverage", "kpi", "ratio",
+      "if(nav_to_common <= 0, 99, reserve / nav_to_common)", "equity"),
+  ];
+
+  const byName = (n: string) => drivers.find((d) => d.name === n)!;
+  const btcId = byName("btc_price").id;
+
+  // Alternate BTC paths are expressed as SCENARIO COMMODITY BINDINGS (re-adjustable
+  // in the model's commodity panel), not baked haircuts. Both price off the power
+  // law's SUPPORT corridor (~0.42× fair, no spot anchor — so the path stays below the
+  // spot-anchored base that mean-reverts up to fair): Support is the corridor itself,
+  // Drawdown adds a deep cyclical crash (higher amplitude). The generated series is
+  // stored as the scenario's override so the engine computes it unchanged.
+  const scenarioPrice = (params: Record<string, number | string>) => ({
+    params: { ...params },
+    values: generatePrice("bitcoin", "powerlaw", model.timeline, params),
+  });
+  const draw = scenarioPrice({ band: "support", amplitude: 0.9 });
+  const supp = scenarioPrice({ band: "support" });
+
+  // Drawdown / bear scenario: lower BTC spot plus a par-break that throttles
+  // preferred issuance. Both push the levered common price well below the base case.
+  const drawdown: Scenario = {
+    id: newId("scn"),
+    name: "Drawdown",
+    overrides: {
+      [btcId]: draw.values,
+      [byName("issuance_start").id]: new Array(periods).fill(300),
+      [byName("issuance_peak").id]: new Array(periods).fill(900),
+    },
+    priceModels: { [btcId]: { commodity: "bitcoin", model: "powerlaw", params: draw.params } },
+  };
+
+  // Power-law support: price the reserve off the support corridor (the lower bound of
+  // the power law) — a structural bear case.
+  const support: Scenario = {
+    id: newId("scn"),
+    name: "Power-law support",
+    overrides: {
+      [btcId]: supp.values,
+    },
+    priceModels: { [btcId]: { commodity: "bitcoin", model: "powerlaw", params: supp.params } },
+  };
+
+  model.drivers = drivers;
+  model.items = items;
+  model.scenarios = [...model.scenarios, drawdown, support];
+
+  // Curated default dashboard: headline tiles, four treasury charts, KPI table.
+  attachTreasuryDashboard(model);
+  return model;
+}
+
+/** Build the default charts + dashboard for the treasury template. */
+function attachTreasuryDashboard(model: Model): void {
+  const chart = (
+    title: string,
+    kind: Chart["kind"],
+    series: Chart["series"],
+  ): Chart => ({ id: newId("cht"), title, kind, series });
+
+  const btcPriceChart = chart("BTC price over time — power law + halving-cycle oscillation", "line", [
+    { ref: "btc_price", label: "BTC price" },
+  ]);
+  const priceChart = chart("ASST common — levered residual claim on BTC", "line", [
+    { ref: "asst_price", label: "ASST price" },
+    { ref: "nav_per_share", label: "NAV / share", style: "line" },
+  ]);
+  const indexChart = chart("ASST vs BTC — leverage amplifies both directions (indexed)", "line", [
+    { ref: "asst_price", label: "ASST", index: true },
+    { ref: "btc_price", label: "BTC", index: true },
+  ]);
+  const coverageChart = chart("SATA dividend coverage — raise vs. obligation", "composed", [
+    { ref: "preferred_dividend", label: "Preferred dividend ($M)", style: "bar" },
+    { ref: "preferred_raise", label: "Preferred raise ($M)", style: "bar" },
+    { ref: "div_coverage", label: "Coverage (x)", style: "line", axis: "right" },
+  ]);
+  const leverageChart = chart("Implied leverage — reserve / NAV-to-common", "area", [
+    { ref: "implied_leverage", label: "Implied leverage" },
+  ]);
+
+  model.charts = [btcPriceChart, priceChart, indexChart, coverageChart, leverageChart];
+
+  const widget = (
+    kind: Widget["kind"],
+    refId: string | undefined,
+    layout: Widget["layout"],
+    extra?: Partial<Widget>,
+  ): Widget => ({ id: newId("wgt"), kind, refId, layout, ...extra });
+
+  model.dashboard = {
+    columns: 12,
+    widgets: [
+      widget("stat", "asst_price", { x: 0, y: 0, w: 3, h: 1 }),
+      widget("stat", "btc_price", { x: 3, y: 0, w: 3, h: 1 }),
+      widget("stat", "btc_held", { x: 6, y: 0, w: 3, h: 1 }),
+      widget("stat", "implied_leverage", { x: 9, y: 0, w: 3, h: 1 }),
+      // BTC price path spans full width — it's the driver behind everything below.
+      widget("chart", btcPriceChart.id, { x: 0, y: 1, w: 12, h: 3 }),
+      widget("chart", priceChart.id, { x: 0, y: 4, w: 6, h: 3 }),
+      widget("chart", indexChart.id, { x: 6, y: 4, w: 6, h: 3 }),
+      widget("chart", coverageChart.id, { x: 0, y: 7, w: 6, h: 3 }),
+      widget("chart", leverageChart.id, { x: 6, y: 7, w: 6, h: 3 }),
+      widget("statement", "kpi", { x: 0, y: 10, w: 12, h: 4 }, { title: "Quarterly projection" }),
+    ],
+  };
+}
+
 export interface TemplateInfo {
   type: ModelType;
   label: string;
@@ -153,6 +404,13 @@ export const TEMPLATES: TemplateInfo[] = [
     label: "SaaS / ARR",
     description: "Customer build, MRR/ARR, gross margin, opex, EBITDA, with a Downside scenario.",
     build: saasModel,
+  },
+  {
+    type: "bitcoin_treasury",
+    label: "Bitcoin Treasury",
+    description:
+      "A BTC treasury company (MSTR/ASST-style) as a levered residual claim: reserve, perpetual preferred, dividend coverage, mNAV, implied leverage, with a Drawdown scenario and a default dashboard.",
+    build: bitcoinTreasuryModel,
   },
 ];
 

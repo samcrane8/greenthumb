@@ -7,6 +7,7 @@
  * to the MCP client alike.
  */
 
+import { findPriceModel } from "./commodities.js";
 import { computeModel } from "./engine.js";
 import { FormulaError, parse, referencedNames } from "./formula.js";
 import type { Model, ValidationIssue } from "./types.js";
@@ -85,6 +86,35 @@ export function validateModel(model: Model): ValidationIssue[] {
     });
   }
 
+  // Commodity price bindings must name a registered commodity/model — both at the
+  // driver (base) level and per-scenario.
+  for (const d of model.drivers) {
+    const b = d.priceModel;
+    if (b && !findPriceModel(b.commodity, b.model)) {
+      issues.push({
+        severity: "error",
+        code: "UNKNOWN_PRICE_MODEL",
+        message: `Driver "${d.name}" is bound to unknown price model "${b.commodity}/${b.model}".`,
+        targetId: d.id,
+      });
+    }
+  }
+  for (const s of model.scenarios) {
+    for (const [driverId, b] of Object.entries(s.priceModels ?? {})) {
+      if (!findPriceModel(b.commodity, b.model)) {
+        issues.push({
+          severity: "error",
+          code: "UNKNOWN_PRICE_MODEL",
+          message: `Scenario "${s.name}" binds driver ${driverId} to unknown price model "${b.commodity}/${b.model}".`,
+          targetId: s.id,
+        });
+      }
+    }
+  }
+
+  // Charts and dashboard reference integrity (only when present).
+  issues.push(...checkVisualization(model, known));
+
   // Numerical integrity: balance sheet balances (A = L + E) per period, when the
   // model actually has balance-sheet items. Only run if structure is sound.
   if (!issues.some((i) => i.severity === "error")) {
@@ -127,6 +157,79 @@ function checkBalanceSheet(model: Model): ValidationIssue[] {
       });
     }
   }
+  return issues;
+}
+
+const STATEMENT_KINDS = new Set(["income", "balance_sheet", "cash_flow", "kpi"]);
+
+/**
+ * Charts and dashboard widgets must reference things that exist: chart series
+ * point at a known item/driver name; widgets point at a real chart, item, or
+ * valid statement kind. Ids must be unique. Absent charts/dashboard = no checks.
+ */
+function checkVisualization(model: Model, known: Set<string>): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const chartIds = new Set<string>();
+
+  for (const chart of model.charts ?? []) {
+    if (chartIds.has(chart.id)) {
+      issues.push({
+        severity: "error",
+        code: "DUPLICATE_CHART_ID",
+        message: `Two charts share the id "${chart.id}".`,
+        targetId: chart.id,
+      });
+    }
+    chartIds.add(chart.id);
+    for (const s of chart.series) {
+      if (!known.has(s.ref)) {
+        issues.push({
+          severity: "error",
+          code: "DANGLING_CHART_REF",
+          message: `Chart "${chart.title}" plots "${s.ref}", which is not a known item or driver.`,
+          targetId: chart.id,
+        });
+      }
+    }
+  }
+
+  const widgetIds = new Set<string>();
+  for (const w of model.dashboard?.widgets ?? []) {
+    if (widgetIds.has(w.id)) {
+      issues.push({
+        severity: "error",
+        code: "DUPLICATE_WIDGET_ID",
+        message: `Two widgets share the id "${w.id}".`,
+        targetId: w.id,
+      });
+    }
+    widgetIds.add(w.id);
+    if (w.kind === "chart" && !chartIds.has(w.refId ?? "")) {
+      issues.push({
+        severity: "error",
+        code: "DANGLING_WIDGET_REF",
+        message: `Chart widget references chart "${w.refId}", which does not exist.`,
+        targetId: w.id,
+      });
+    }
+    if (w.kind === "stat" && !known.has(w.refId ?? "")) {
+      issues.push({
+        severity: "error",
+        code: "DANGLING_WIDGET_REF",
+        message: `Stat widget references "${w.refId}", which is not a known item or driver.`,
+        targetId: w.id,
+      });
+    }
+    if (w.kind === "statement" && !STATEMENT_KINDS.has(w.refId ?? "")) {
+      issues.push({
+        severity: "error",
+        code: "DANGLING_WIDGET_REF",
+        message: `Statement widget references "${w.refId}", which is not a valid statement kind.`,
+        targetId: w.id,
+      });
+    }
+  }
+
   return issues;
 }
 

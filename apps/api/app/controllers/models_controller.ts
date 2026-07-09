@@ -3,15 +3,31 @@ import {
   createModel,
   computeModel,
   getStatement,
+  getChartData,
   compareScenarios,
   validateModel,
+  listCommodities,
+  findPriceModel,
+  generatePrice,
+  periodDate,
   TEMPLATES,
+  type Granularity,
   type Model,
   type ModelType,
   type StatementKind,
+  type Timeline,
 } from '@greenthumb/core'
 
 import { modelStore } from '#services/model_store'
+
+/** Short axis label for a preview period, e.g. "Q3 '26" / "Jul '26" / "FY2028". */
+function periodLabel(timeline: Timeline, index: number): string {
+  const d = periodDate(timeline, index)
+  const yy = String(d.getUTCFullYear()).slice(2)
+  if (timeline.granularity === 'annual') return `FY${d.getUTCFullYear()}`
+  if (timeline.granularity === 'quarterly') return `Q${Math.floor(d.getUTCMonth() / 3) + 1} '${yy}`
+  return `${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })} '${yy}`
+}
 
 /**
  * Model lifecycle + read/compute endpoints. The HTTP surface over the core
@@ -30,6 +46,50 @@ export default class ModelsController {
     return response.ok(
       TEMPLATES.map((t) => ({ type: t.type, label: t.label, description: t.description }))
     )
+  }
+
+  /** GET /api/commodities — available commodities and their price models. */
+  async commodities({ response }: HttpContext) {
+    return response.ok(listCommodities())
+  }
+
+  /**
+   * GET /api/commodities/:commodityId/:modelId/preview — a generated sample price
+   * series over a default (or query-overridable) timeline, for the read-only
+   * commodities view. Read-only; generates via the core registry. 404 if unknown.
+   */
+  async commodityPreview({ params, request, response }: HttpContext) {
+    if (!findPriceModel(params.commodityId, params.modelId)) {
+      return response.notFound({ error: 'Unknown commodity or price model' })
+    }
+    const now = new Date()
+    const timeline: Timeline = {
+      granularity: (request.input('granularity', 'quarterly') as Granularity),
+      start: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`,
+      periods: Math.max(1, Math.min(200, Number(request.input('periods', 24)))),
+      fiscalYearStartMonth: 1,
+      actualsThrough: -1,
+    }
+
+    // Collect param overrides: `band` is a string; the rest are numeric.
+    const modelParams: Record<string, number | string> = {}
+    const band = request.input('band')
+    if (band) modelParams.band = String(band)
+    for (const key of ['spot', 'amplitude', 'cycleYears', 'exponent', 'coefficient', 'damping']) {
+      const v = request.input(key)
+      if (v !== undefined && v !== null && v !== '') modelParams[key] = Number(v)
+    }
+
+    const series = generatePrice(params.commodityId, params.modelId, timeline, modelParams)
+    const labels = series.map((_, i) => periodLabel(timeline, i))
+    return response.ok({
+      commodityId: params.commodityId,
+      modelId: params.modelId,
+      periods: timeline.periods,
+      granularity: timeline.granularity,
+      series,
+      labels,
+    })
   }
 
   /** POST /api/models — create from a template. */
@@ -104,6 +164,19 @@ export default class ModelsController {
     if (!scenario) return response.badRequest({ error: 'Unknown scenario' })
     const kind = (request.input('kind', 'income') as StatementKind)
     return response.ok(getStatement(model, scenario, kind))
+  }
+
+  /** GET /api/models/:id/charts/:chartId/data?scenario=:id — derived chart series. */
+  async chartData({ params, request, response }: HttpContext) {
+    const model = await modelStore().get(params.id)
+    if (!model) return response.notFound({ error: 'Model not found' })
+    const scenario = this.#resolveScenario(model, request.input('scenario'))
+    if (!scenario) return response.badRequest({ error: 'Unknown scenario' })
+    try {
+      return response.ok(getChartData(model, scenario, params.chartId))
+    } catch (err) {
+      return response.notFound({ error: (err as Error).message })
+    }
   }
 
   /** GET /api/models/:id/compare?item=:itemId&scenarios=a,b,c */

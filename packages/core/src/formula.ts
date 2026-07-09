@@ -238,6 +238,83 @@ export function referencedNames(node: Node): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Printer + rename (AST -> string)
+//
+// The engine parses expression strings but stored formulas are strings, so a
+// rename that must keep dependent formulas resolvable needs to rewrite those
+// strings. We do it structurally: parse -> rewrite `ref` names -> print. The
+// printer emits minimal, precedence-aware parentheses, so an expression may be
+// canonically reformatted on rename (semantically identical — see round-trip
+// tests). `parse(print(ast))` is stable.
+// ---------------------------------------------------------------------------
+
+/** Precedence of a node for parenthesization; atoms bind tightest. */
+function nodePrec(n: Node): number {
+  return n.type === "binary" ? PRECEDENCE[n.op]! : Infinity;
+}
+
+/** Render an AST back to a canonical expression string. */
+export function printExpr(node: Node): string {
+  switch (node.type) {
+    case "num":
+      return String(node.value);
+    case "ref":
+      return node.name;
+    case "unary": {
+      // Parenthesize a binary argument so `-(a + b)` round-trips correctly.
+      const inner = printExpr(node.arg);
+      return node.arg.type === "binary" ? `-(${inner})` : `-${inner}`;
+    }
+    case "call":
+      return `${node.name}(${node.args.map(printExpr).join(", ")})`;
+    case "binary": {
+      const p = PRECEDENCE[node.op]!;
+      const rightAssoc = node.op === "^";
+      const wrap = (child: Node, side: "left" | "right") => {
+        const s = printExpr(child);
+        const cp = nodePrec(child);
+        const needs =
+          side === "left"
+            ? cp < p || (rightAssoc && cp === p)
+            : cp < p || (!rightAssoc && cp === p);
+        return needs ? `(${s})` : s;
+      };
+      return `${wrap(node.left, "left")} ${node.op} ${wrap(node.right, "right")}`;
+    }
+  }
+}
+
+/** Structurally rewrite `ref` names according to `renames` (old -> new). */
+function renameRefs(node: Node, renames: Record<string, string>): Node {
+  switch (node.type) {
+    case "num":
+      return node;
+    case "ref":
+      return renames[node.name] ? { type: "ref", name: renames[node.name]! } : node;
+    case "unary":
+      return { type: "unary", op: node.op, arg: renameRefs(node.arg, renames) };
+    case "binary":
+      return {
+        type: "binary",
+        op: node.op,
+        left: renameRefs(node.left, renames),
+        right: renameRefs(node.right, renames),
+      };
+    case "call":
+      return { type: "call", name: node.name, args: node.args.map((a) => renameRefs(a, renames)) };
+  }
+}
+
+/**
+ * Rewrite every reference to a renamed name inside an expression string.
+ * Only bare item/driver references are swapped — function names and numbers are
+ * untouched. Returns the canonically printed result.
+ */
+export function renameInExpression(expr: string, renames: Record<string, string>): string {
+  return printExpr(renameRefs(parse(expr), renames));
+}
+
+// ---------------------------------------------------------------------------
 // Evaluator
 // ---------------------------------------------------------------------------
 
@@ -350,9 +427,59 @@ function evalCall(
     case "if":
       requireArgs(name, args, 3);
       return arg(0) !== 0 ? arg(1) : arg(2);
+    // --- Stateless math primitives (pure, period-local, total) ---
+    // These never throw on domain edge cases; out-of-domain / non-finite
+    // results collapse to 0, matching the divide-by-zero convention above.
+    case "exp":
+      requireArgs(name, args, 1);
+      return finite(Math.exp(arg(0)));
+    case "ln":
+      requireArgs(name, args, 1);
+      return arg(0) <= 0 ? 0 : finite(Math.log(arg(0)));
+    case "sqrt":
+      requireArgs(name, args, 1);
+      return arg(0) < 0 ? 0 : finite(Math.sqrt(arg(0)));
+    case "pow":
+      requireArgs(name, args, 2);
+      return finite(Math.pow(arg(0), arg(1)));
+    case "round":
+      requireArgs(name, args, 1);
+      return Math.round(arg(0));
+    case "floor":
+      requireArgs(name, args, 1);
+      return Math.floor(arg(0));
+    case "clamp": {
+      requireArgs(name, args, 3);
+      const x = arg(0);
+      const lo = arg(1);
+      const hi = arg(2);
+      return Math.min(Math.max(x, lo), hi);
+    }
+    case "logistic": {
+      // logistic(x, k, x0) = 1 / (1 + exp(-k * (x - x0)))
+      requireArgs(name, args, 3);
+      return finite(1 / (1 + Math.exp(-arg(1) * (arg(0) - arg(2)))));
+    }
+    case "scurve": {
+      // scurve(t, start, peak, ramp): start-to-peak ramp shaped by a logistic
+      // centered at ramp/2 with steepness 4/ramp (near-flat by t=0 and t=ramp).
+      requireArgs(name, args, 4);
+      const t = arg(0);
+      const start = arg(1);
+      const peak = arg(2);
+      const ramp = arg(3);
+      const k = ramp === 0 ? 0 : 4 / ramp;
+      const s = 1 / (1 + Math.exp(-k * (t - ramp / 2)));
+      return finite(start + (peak - start) * s);
+    }
     default:
       throw new FormulaError(`Unknown function '${name}()'`);
   }
+}
+
+/** Collapse non-finite results (NaN, ±Infinity) to 0 so the engine stays total. */
+function finite(v: number): number {
+  return Number.isFinite(v) ? v : 0;
 }
 
 function requireArgs(name: string, args: Node[], n: number): void {

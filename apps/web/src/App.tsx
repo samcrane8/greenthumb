@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 
 import Layout from '@/Layout'
 import WorkspacePage from '@/pages/WorkspacePage'
+import CommoditiesPage from '@/pages/CommoditiesPage'
 import SettingsLayout from '@/pages/settings/SettingsLayout'
 import PreferencesPage from '@/pages/settings/PreferencesPage'
 import ProfilePage from '@/pages/settings/ProfilePage'
@@ -19,6 +20,7 @@ const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { index: true, element: <WorkspacePage /> },
+      { path: 'commodities', element: <CommoditiesPage /> },
       {
         path: 'settings',
         element: <SettingsLayout />,

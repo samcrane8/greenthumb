@@ -1,0 +1,112 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API (AdonisJS)",
+      "type": "node",
+      "request": "launch",
+      "runtimeVersion": "22",
+      "cwd": "${workspaceFolder}/apps/api",
+      "program": "${workspaceFolder}/apps/api/ace.js",
+      "args": ["serve", "--hmr"],
+      "preLaunchTask": "build: core",
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Web dev server (Vite)",
+      "type": "node",
+      "request": "launch",
+      "runtimeVersion": "22",
+      "cwd": "${workspaceFolder}/apps/web",
+      "program": "${workspaceFolder}/node_modules/vite/bin/vite.js",
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Web (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/apps/web",
+      "sourceMaps": true
+    },
+    {
+      "name": "MCP server",
+      "type": "node",
+      "request": "launch",
+      "runtimeVersion": "22",
+      "cwd": "${workspaceFolder}/packages/mcp",
+      "program": "${workspaceFolder}/packages/mcp/dist/index.js",
+      "preLaunchTask": "build: mcp",
+      "env": {
+        "GREENTHUMB_API_URL": "http://localhost:3333"
+      },
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "outFiles": ["${workspaceFolder}/packages/mcp/dist/**/*.js"],
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Electron main",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/desktop",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "runtimeArgs": ["."],
+      "preLaunchTask": "build: desktop main",
+      "env": {
+        "VITE_DEV_SERVER_URL": "http://localhost:5173"
+      },
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "outFiles": ["${workspaceFolder}/apps/desktop/dist/**/*.js"],
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Core: debug open test file",
+      "type": "node",
+      "request": "launch",
+      "runtimeVersion": "22",
+      "cwd": "${workspaceFolder}/packages/core",
+      "runtimeArgs": ["--import", "tsx", "--test"],
+      "program": "${file}",
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Core: run engine tests",
+      "type": "node",
+      "request": "launch",
+      "runtimeVersion": "22",
+      "cwd": "${workspaceFolder}/packages/core",
+      "runtimeArgs": ["--import", "tsx", "--test"],
+      "program": "${workspaceFolder}/packages/core/src/engine.test.ts",
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full-stack: API + Web",
+      "configurations": ["API (AdonisJS)", "Web dev server (Vite)", "Web (Chrome)"],
+      "stopAll": true,
+      "presentation": { "group": "1_stacks", "order": 1 }
+    },
+    {
+      "name": "Desktop: API + Web + Electron",
+      "configurations": ["API (AdonisJS)", "Web dev server (Vite)", "Electron main"],
+      "stopAll": true,
+      "presentation": { "group": "1_stacks", "order": 2 }
+    }
+  ]
+}

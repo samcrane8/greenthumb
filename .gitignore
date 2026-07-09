@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Builds
+dist/
+build/
+out/
+*.tsbuildinfo
+apps/web/dist/
+apps/desktop/dist/
+apps/desktop/release/
+
+# AdonisJS
+apps/api/build/
+apps/api/tmp/
+.env
+.env.local
+.env.*.local
+
+# Local model data & databases (local-first: user data stays on disk, never committed)
+*.sqlite
+*.sqlite3
+data/
+models/*.json
+!models/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Claude Code local settings (personal permission allowlist; not shared).
+# The shared .claude/commands and .claude/skills (incl. OpenSpec) ARE committed.
+.claude/settings.local.json
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+*.swp
+
+# Test / coverage
+coverage/
+.nyc_output/

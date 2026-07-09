@@ -1,0 +1,25 @@
+{
+  "name": "@greenthumb/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop shell — runs the AdonisJS engine locally and loads the React UI. Local-first: all data stays on the machine.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.json",
+    "predev": "pnpm --filter @greenthumb/core build",
+    "dev": "concurrently -k -n api,web,electron -c blue,magenta,cyan \"pnpm --filter @greenthumb/api dev\" \"pnpm --filter @greenthumb/web dev\" \"pnpm run dev:electron\"",
+    "dev:electron": "tsc -p tsconfig.json && wait-on http://localhost:5173 http://localhost:3333/health && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepackage": "pnpm --filter @greenthumb/core build && pnpm --filter @greenthumb/web build && pnpm --filter @greenthumb/api build && pnpm run build:main",
+    "package": "pnpm run prepackage && electron-builder --dir",
+    "dist": "pnpm run prepackage && electron-builder"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.3",
+    "wait-on": "^8.0.2"
+  }
+}

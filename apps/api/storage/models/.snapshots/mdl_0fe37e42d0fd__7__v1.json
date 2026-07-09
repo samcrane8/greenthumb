@@ -1,0 +1,296 @@
+{
+  "id": "mdl_0fe37e42d0fd",
+  "meta": {
+    "name": "Integration",
+    "type": "saas",
+    "baseCurrency": "USD",
+    "createdAt": "2026-07-09T16:28:45.695Z",
+    "modifiedAt": "2026-07-09T16:28:45.762Z",
+    "version": 7
+  },
+  "timeline": {
+    "granularity": "monthly",
+    "start": "2026-01-01",
+    "periods": 48,
+    "fiscalYearStartMonth": 1,
+    "actualsThrough": -1
+  },
+  "items": [
+    {
+      "id": "itm_d872115a6fae",
+      "name": "customers",
+      "category": "kpi",
+      "unit": "count",
+      "section": "revenue_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "prior(customers) * (1 - monthly_churn) + new_customers"
+      }
+    },
+    {
+      "id": "itm_ad6deab886cc",
+      "name": "mrr",
+      "category": "revenue",
+      "unit": "currency",
+      "section": "revenue_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "customers * arpa"
+      }
+    },
+    {
+      "id": "itm_66679f3f2bc6",
+      "name": "arr",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "revenue_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "mrr * 12"
+      }
+    },
+    {
+      "id": "itm_ac7a85b736b5",
+      "name": "cogs",
+      "category": "cogs",
+      "unit": "currency",
+      "section": "cost_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "-mrr * (1 - gross_margin)"
+      }
+    },
+    {
+      "id": "itm_f74e8f711063",
+      "name": "gross_profit",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "cost_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "mrr + cogs"
+      }
+    },
+    {
+      "id": "itm_37677d4f849c",
+      "name": "opex",
+      "category": "opex",
+      "unit": "currency",
+      "section": "cost_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "-opex_per_month"
+      }
+    },
+    {
+      "id": "itm_773503e605bb",
+      "name": "ebitda",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "cost_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "gross_profit + opex"
+      }
+    },
+    {
+      "id": "itm_a4fc54fc1d7c",
+      "name": "net_margin",
+      "category": "kpi",
+      "unit": "ratio",
+      "definition": {
+        "kind": "formula",
+        "expression": "ebitda / mrr"
+      }
+    }
+  ],
+  "drivers": [
+    {
+      "id": "drv_0196a2e4cd26",
+      "name": "new_customers",
+      "unit": "count",
+      "shape": "series",
+      "values": [
+        120,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20
+      ]
+    },
+    {
+      "id": "drv_081d23810276",
+      "name": "monthly_churn",
+      "unit": "percent",
+      "shape": "scalar",
+      "values": [
+        0.02
+      ]
+    },
+    {
+      "id": "drv_4966cacc4a6f",
+      "name": "arpa",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        1000
+      ]
+    },
+    {
+      "id": "drv_aac387152c37",
+      "name": "gross_margin",
+      "unit": "percent",
+      "shape": "scalar",
+      "values": [
+        0.8
+      ]
+    },
+    {
+      "id": "drv_f133484abdec",
+      "name": "opex_per_month",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        40000
+      ]
+    },
+    {
+      "id": "drv_bb763fb4b739",
+      "name": "tax_rate",
+      "unit": "percent",
+      "shape": "scalar",
+      "values": [
+        0.21
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "scn_f1303d9a84a6",
+      "name": "Base",
+      "overrides": {}
+    },
+    {
+      "id": "scn_9dae3920a7b0",
+      "name": "Downside",
+      "overrides": {
+        "drv_081d23810276": [
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04
+        ],
+        "drv_0196a2e4cd26": [
+          60,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ]
+      }
+    },
+    {
+      "id": "scn_541089a50e86",
+      "name": "Upside",
+      "overrides": {
+        "drv_081d23810276": [
+          0.01
+        ]
+      }
+    }
+  ]
+}

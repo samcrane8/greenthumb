@@ -1,0 +1,12 @@
+{
+  // VS Code runs tasks/debug pre-launch in a NON-interactive login shell
+  // (`zsh -l -c …`), which does not source ~/.zshrc — so nvm never loads and
+  // PATH falls back to a system Node. Vite 8 / rolldown require Node >= 22, so
+  // that fails. Making the automation shell interactive (`-i`) loads nvm and
+  // picks up the arm64 Node from .nvmrc (or the nvm default). This keeps
+  // tasks.json clean (plain `pnpm …`) instead of sourcing nvm per command.
+  "terminal.integrated.automationProfile.osx": {
+    "path": "/bin/zsh",
+    "args": ["-l", "-i"]
+  }
+}

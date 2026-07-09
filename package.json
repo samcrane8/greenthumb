@@ -1,0 +1,35 @@
+{
+  "name": "greenthumb",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first financial modeling engine with a React/shadcn UI, AdonisJS backend, Electron desktop app, and an MCP server — one core engine as the single source of truth.",
+  "author": "Sam Crane",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter=./packages/* build && pnpm -r --filter=./apps/* build",
+    "build:core": "pnpm --filter @greenthumb/core build",
+    "dev:api": "pnpm --filter @greenthumb/api dev",
+    "dev:web": "pnpm --filter @greenthumb/web dev",
+    "dev:desktop": "pnpm --filter @greenthumb/desktop dev",
+    "dev": "pnpm --filter @greenthumb/core build && concurrently -n api,web -c blue,magenta \"pnpm dev:api\" \"pnpm dev:web\"",
+    "mcp": "pnpm --filter @greenthumb/mcp start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r exec rm -rf node_modules dist build && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "//": "Fetch native bindings (e.g. rolldown) for both mac arches + linux so a Rosetta/x64 or CI runtime still resolves them. NOTE: from-source native modules (better-sqlite3) still build only for the install host arch — run native arm64 Node on Apple Silicon.",
+    "supportedArchitectures": {
+      "os": ["current", "darwin", "linux"],
+      "cpu": ["current", "arm64", "x64"]
+    }
+  }
+}

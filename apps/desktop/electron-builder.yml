@@ -1,0 +1,34 @@
+appId: com.greenthumb.desktop
+productName: greenthumb
+directories:
+  output: release
+  buildResources: build
+
+# The Electron app itself is just the compiled main/preload — the UI and API are
+# bundled as resources (the API is forked at runtime via ELECTRON_RUN_AS_NODE).
+files:
+  - dist/**/*
+  - package.json
+
+extraResources:
+  # Built React UI, loaded from disk in production.
+  - from: ../web/dist
+    to: web
+  # Built AdonisJS server (produced by `node ace build`).
+  # NOTE: run `pnpm --filter @greenthumb/api build` first, then install prod deps
+  # inside apps/api/build and rebuild better-sqlite3 against Electron's ABI
+  # (electron-builder's install-app-deps / @electron/rebuild) before packaging.
+  - from: ../api/build
+    to: api
+
+mac:
+  category: public.app-category.finance
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage

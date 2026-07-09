@@ -1,0 +1,194 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+ * greenthumb "Instrument" design language. See docs/design.md.
+ * Cool slate field, one technical-green signal, hairline borders, sharp radii,
+ * monospace data. Change tokens here.
+ * ------------------------------------------------------------------------- */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: calc(var(--radius) - 1px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 2px);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo,
+    Consolas, monospace;
+}
+
+/* Light — the same slate language, turned up. */
+:root {
+  --radius: 0.25rem;
+  --background: oklch(0.98 0.003 255);
+  --foreground: oklch(0.22 0.015 255);
+  --card: oklch(0.995 0.002 255);
+  --card-foreground: oklch(0.22 0.015 255);
+  --popover: oklch(0.995 0.002 255);
+  --popover-foreground: oklch(0.22 0.015 255);
+  --primary: oklch(0.52 0.13 152);
+  --primary-foreground: oklch(0.99 0.01 152);
+  --secondary: oklch(0.955 0.004 255);
+  --secondary-foreground: oklch(0.28 0.015 255);
+  --muted: oklch(0.955 0.004 255);
+  --muted-foreground: oklch(0.5 0.015 255);
+  --accent: oklch(0.94 0.006 255);
+  --accent-foreground: oklch(0.24 0.015 255);
+  --destructive: oklch(0.53 0.2 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.9 0.006 255);
+  --input: oklch(0.88 0.006 255);
+  --ring: oklch(0.52 0.13 152);
+  --positive: oklch(0.52 0.13 152);
+  --negative: oklch(0.53 0.2 25);
+}
+
+/* Dark — the reference. Gunmetal slate field, technical-green signal. */
+.dark {
+  --background: oklch(0.17 0.01 255);
+  --foreground: oklch(0.96 0.004 255);
+  --card: oklch(0.205 0.012 255);
+  --card-foreground: oklch(0.96 0.004 255);
+  --popover: oklch(0.205 0.012 255);
+  --popover-foreground: oklch(0.96 0.004 255);
+  --primary: oklch(0.74 0.14 152);
+  --primary-foreground: oklch(0.18 0.03 152);
+  --secondary: oklch(0.245 0.012 255);
+  --secondary-foreground: oklch(0.96 0.004 255);
+  --muted: oklch(0.245 0.012 255);
+  --muted-foreground: oklch(0.66 0.012 255);
+  --accent: oklch(0.275 0.014 255);
+  --accent-foreground: oklch(0.96 0.004 255);
+  --destructive: oklch(0.64 0.19 25);
+  --destructive-foreground: oklch(0.98 0.01 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.74 0.14 152);
+  --positive: oklch(0.74 0.14 152);
+  --negative: oklch(0.64 0.19 25);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: 'rlig' 1, 'calt' 1, 'ss01' 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Faint technical grid — texture, not pattern. Shows through gutters and
+     * empty states; opaque cards sit cleanly on top. */
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in oklch, var(--border) 55%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklch, var(--border) 55%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 32px 32px;
+  }
+
+  /* Selection uses the signal, quietly. */
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 30%, transparent);
+  }
+
+  /* Thin, slate scrollbars — instrument, not chrome. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent)
+      transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+  }
+}
+
+@layer components {
+  /* Mono uppercase micro-label — the workhorse label of the whole UI. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted-foreground);
+  }
+
+  /* Live status dot — a running connection. */
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--primary);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 60%, transparent);
+    animation: live-pulse 2s ease-out infinite;
+  }
+  @keyframes live-pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 55%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 5px color-mix(in oklch, var(--primary) 0%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 0%, transparent);
+    }
+  }
+
+  /* Quiet staggered view entrance. */
+  .view-enter {
+    animation: view-fade 260ms ease-out both;
+  }
+  @keyframes view-fade {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

@@ -1,0 +1,44 @@
+schema: spec-driven
+
+# Project context — shown to the AI when creating OpenSpec artifacts.
+context: |
+  Product: greenthumb — a local-first financial modeling engine with a React/shadcn
+  UI and an MCP server for Claude, over ONE core engine as the single source of
+  truth. Models are typed, semantic object graphs (drivers, line items,
+  time-aware formulas, scenarios), not opaque grids of cells. See docs/
+  Financial-Modeling-Service-PRD.md and docs/Roadmap.md.
+
+  Monorepo (pnpm workspaces), pinned to Node 22 (.nvmrc):
+    packages/core   — the engine. Pure TypeScript, NO I/O. Domain types, formula
+                      language, dependency-ordered recompute + iterative solver
+                      for intentional circularity, validate-on-write operations,
+                      templates, statements. THE single source of truth.
+    packages/mcp    — MCP server (stdio) exposing the engine to Claude via the API.
+    apps/api        — AdonisJS 6. HTTP surface over the engine; JSON model store
+                      (diffable, git-versionable) + SQLite via Lucid; single-tenant
+                      API-key gate.
+    apps/web        — React 19 + Vite + shadcn/ui + Tailwind v4.
+    apps/desktop    — Electron shell that forks the API locally (local-first).
+
+  Architecture rule that governs everything: new capabilities are added to the
+  core operation layer FIRST, then exposed through the adapters (API + MCP).
+  Never duplicate model logic in an adapter. Every mutation validates before
+  commit and returns { model, issues, ok }; the API and MCP both support
+  ?preview=true (the accept/reject review flow).
+
+  Conventions: costs are negative; balance sheet must satisfy A = L + E; formula
+  references are by item/driver name (items win name collisions); ship = both
+  desktop (Electron) and single-tenant web from one codebase.
+
+# Per-artifact rules for this repo.
+rules:
+  proposal:
+    - State which layer changes first — almost always packages/core — and how the
+      API and MCP adapters expose it afterward.
+    - Include a "Non-goals" section; hold the line on PRD §3 (not rebuilding Excel).
+    - Note the integrity impact (balance/tie-out/validation) of the change.
+  tasks:
+    - Put engine changes (packages/core) before adapter changes (apps/api, packages/mcp)
+      and UI changes (apps/web).
+    - Include a golden-file / unit test for any engine behavior (the calc-correctness moat).
+    - Keep the "one source of truth" invariant: no model logic duplicated in adapters.

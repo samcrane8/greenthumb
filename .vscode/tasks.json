@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build: core",
+      "detail": "Compile @greenthumb/core (the API imports it at runtime).",
+      "type": "shell",
+      "command": "pnpm --filter @greenthumb/core build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "echo": false,
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "close": true
+      }
+    },
+    {
+      "label": "build: mcp",
+      "detail": "Compile the MCP server to dist/.",
+      "type": "shell",
+      "command": "pnpm --filter @greenthumb/mcp build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "echo": false,
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "close": true
+      }
+    },
+    {
+      "label": "build: desktop main",
+      "detail": "Compile the Electron main/preload to dist/.",
+      "type": "shell",
+      "command": "pnpm --filter @greenthumb/desktop build:main",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "echo": false,
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "close": true
+      }
+    }
+  ]
+}

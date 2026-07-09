@@ -1,0 +1,268 @@
+{
+  "id": "mdl_ba8140a44e0a",
+  "meta": {
+    "name": "Acme SaaS",
+    "type": "saas",
+    "baseCurrency": "USD",
+    "createdAt": "2026-07-09T18:36:31.139Z",
+    "modifiedAt": "2026-07-09T18:36:31.139Z",
+    "version": 1
+  },
+  "timeline": {
+    "granularity": "monthly",
+    "start": "2026-01-01",
+    "periods": 36,
+    "fiscalYearStartMonth": 1,
+    "actualsThrough": -1
+  },
+  "items": [
+    {
+      "id": "itm_e065170e73cc",
+      "name": "customers",
+      "category": "kpi",
+      "unit": "count",
+      "section": "revenue_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "prior(customers) * (1 - monthly_churn) + new_customers"
+      }
+    },
+    {
+      "id": "itm_374fc9d67834",
+      "name": "mrr",
+      "category": "revenue",
+      "unit": "currency",
+      "section": "revenue_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "customers * arpa"
+      }
+    },
+    {
+      "id": "itm_816dd9294bd6",
+      "name": "arr",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "revenue_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "mrr * 12"
+      }
+    },
+    {
+      "id": "itm_92940c4775dc",
+      "name": "cogs",
+      "category": "cogs",
+      "unit": "currency",
+      "section": "cost_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "-mrr * (1 - gross_margin)"
+      }
+    },
+    {
+      "id": "itm_0cdff061cfa4",
+      "name": "gross_profit",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "cost_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "mrr + cogs"
+      }
+    },
+    {
+      "id": "itm_8c571cc29206",
+      "name": "opex",
+      "category": "opex",
+      "unit": "currency",
+      "section": "cost_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "-opex_per_month"
+      }
+    },
+    {
+      "id": "itm_11267f96397b",
+      "name": "ebitda",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "cost_build",
+      "definition": {
+        "kind": "formula",
+        "expression": "gross_profit + opex"
+      }
+    }
+  ],
+  "drivers": [
+    {
+      "id": "drv_ec503f62e76c",
+      "name": "new_customers",
+      "unit": "count",
+      "shape": "series",
+      "values": [
+        120,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20
+      ]
+    },
+    {
+      "id": "drv_6a8b759d3bd5",
+      "name": "monthly_churn",
+      "unit": "percent",
+      "shape": "scalar",
+      "values": [
+        0.02
+      ]
+    },
+    {
+      "id": "drv_da179bdad116",
+      "name": "arpa",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        500
+      ]
+    },
+    {
+      "id": "drv_a9eaba99d1cd",
+      "name": "gross_margin",
+      "unit": "percent",
+      "shape": "scalar",
+      "values": [
+        0.8
+      ]
+    },
+    {
+      "id": "drv_15e2eb8a789b",
+      "name": "opex_per_month",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        40000
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "scn_1dd3f3ed7cd0",
+      "name": "Base",
+      "overrides": {}
+    },
+    {
+      "id": "scn_25692af2d286",
+      "name": "Downside",
+      "overrides": {
+        "drv_6a8b759d3bd5": [
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04,
+          0.04
+        ],
+        "drv_ec503f62e76c": [
+          60,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ]
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # greenthumb — Roadmap
 
-**Status:** Draft v0.1 · July 9, 2026
+**Status:** Draft v0.2 · July 10, 2026
 **Owner:** Sam Crane
 
 This roadmap turns the [PRD](Financial-Modeling-Service-PRD.md) into an ordered
@@ -21,37 +21,99 @@ The monorepo skeleton is built and verified end-to-end:
   dependency-ordered recompute, **iterative solver for intentional
   circularity**, validate-on-write operations, `blank` + `saas` +
   `bitcoin_treasury` templates, statement views, **persisted charts + dashboard
-  entities**. 34 unit tests passing.
+  entities**, and a **read-only analysis layer** (forecast-accuracy metrics,
+  sensitivity/tornado, backtesting + walk-forward, calibration — see §2.1a).
+  `computeModel` now also returns per-scenario **driver series** so adapters
+  resolve item-or-driver refs without duplicating expansion. 99 unit tests
+  passing.
 - ✅ **AdonisJS API** (`apps/api`): HTTP surface over the engine, JSON model
-  store, SQLite via Lucid (actuals/snapshots), single-tenant API-key gate,
-  chart/dashboard edit + chart-data routes, timeline/rename/notes/delete edit
-  routes with a `?summary=true` lean-response mode.
+  store, SQLite via Lucid with **wired actuals ingestion** (+ snapshots),
+  single-tenant API-key gate, chart/dashboard edit + chart-data routes,
+  timeline/rename/notes/delete edit routes with a `?summary=true` lean-response
+  mode, plus **analysis routes** (score / sweep / tornado / backtest /
+  walkforward / calibrate / actuals + CSV import / forecast-actual join), plus
+  **market-data providers** (pluggable registry — keyless Stooq default, BYO-key
+  Alpha Vantage, offline demo — that fetch quotes/history and *materialize* them
+  into a model's actuals or seed a driver, with provenance; keys stay in local
+  config, never in model JSON).
 - ✅ **React + shadcn UI** (`apps/web`): model list, scenario switcher, KPI
   tiles, statement grid, editable driver panel, **recharts-based chart renderer
-  and an editable dashboard** (add / remove / reorder / resize widgets), plus a
-  **Commodities view** (`/commodities`) with an interactive price-model preview.
-- ✅ **MCP server** (`packages/mcp`): 23 tools over stdio → live API (incl.
-  chart + dashboard tools).
+  and an editable dashboard** (add / remove / reorder / resize widgets), a
+  **Commodities view** (`/commodities`) with an interactive price-model preview,
+  and a **Data Sources** settings page (configure providers, test, import actuals
+  from a ticker).
+
+**Market data — adapter-only, materialize-don't-live-compute.** Fetching lives
+entirely in the adapters (`packages/core` stays I/O-free); results are written into
+the model as actuals (aligned to the timeline) or a seeded driver, so `computeModel`
+never touches the network and models stay reproducible. v1 is **backtest-safe**:
+price history + current-snapshot quotes only — point-in-time fundamentals are
+deferred to avoid lookahead bias. Exposed via `GET /market/providers`,
+`/market/:symbol/{quote,history}`, `POST /models/:id/actuals/import-market`,
+`PUT /models/:id/drivers/:driverId/seed-from-quote`, and the `list_data_providers` /
+`get_quote` / `get_price_history` / `import_market_actuals` / `seed_driver_from_quote`
+MCP tools. Imported history feeds the backtesting/calibration loop directly.
+  Stat tiles resolve items *and* drivers (e.g. `btc_price`).
+- ✅ **MCP server** (`packages/mcp`): **41 tools** over stdio → live API (incl.
+  chart + dashboard tools and the **backtesting loop** — `import_actuals` /
+  `score_forecast` / `tornado` / `run_backtest` / `walk_forward` / `calibrate`),
+  with **server-level instructions** that steer Claude to backtest a model
+  against reality before trusting it (validation ≠ a working forecast).
 - ✅ **Electron shell** (`apps/desktop`): forks the API locally, loads the UI.
+
+**Toolchain.** The repo targets **Node 25** (`.nvmrc`); `better-sqlite3` is on
+**v12** (prebuilt binaries — no local source compile needed).
 
 **Bitcoin treasury template — fidelity note.** The `bitcoin_treasury` template
 models an MSTR/ASST-style company as a *levered residual claim* on a crypto
 reserve funded by perpetual preferred (reserve, preferred notional + dividend
 coverage, cash buffer, common ATM dilution, a native **debt line** — straight +
-convertible — subtracting from NAV, NAV-to-common, mNAV mean-reversion, implied
-leverage). It is a faithful **first-order** model: the amplification cap and
-issuance S-curve are declarative formulas, but discrete cycle/capitulation events
-from the reference are expressed via **scenario overrides** (see the Drawdown
-scenario), not new engine control flow. It ships with a curated default dashboard
-(headline tiles, four treasury charts, KPI table).
+convertible — subtracting from NAV, NAV-to-common, implied leverage). It is a
+faithful **first-order** model: the amplification cap and issuance S-curve are
+declarative formulas, but discrete cycle/capitulation events from the reference
+are expressed via **scenario overrides** (see the Drawdown scenario), not new
+engine control flow. It ships with a curated default dashboard (headline tiles,
+four treasury charts, KPI table). **Premium & solvency fidelity:** mNAV is a
+first-class **series** (`mnav_path`) — settable to an observed / non-monotonic
+cycle (real MSTR ran 3.4× → 0.74× → 2.1× → ~0.95×), defaulting to the prior
+mean-reversion; and convertibles can be treated as **look-through equity**
+(`convert_as_equity`), so a deep drawdown where BTC ≈ senior debt doesn't wipe the
+common to zero the way face-value debt would.
+
+**Capital stack.** A company's full capital structure is a first-class, ranked
+overlay (`Model.capitalStack`): tranches (`senior_debt` / `subordinated_debt` /
+`convertible` / `preferred` / `common`) that *reference* existing model series by
+name for their claims/rates — never copying them — so the structure sits on top of
+the numbers the engine already computes. `analyzeCapitalStack` derives a per-period
+**seniority waterfall** (claim → paid → recovery → claims-ahead, senior-before-junior),
+coverage ratios, **residual-to-common + NAV/share**, blended cost of capital, implied
+leverage, and convert dilution (a simple `convertAsEquity` toggle, not option pricing).
+The `bitcoin_treasury` template ships a default stack whose residual-to-common **ties
+out** to its `nav_to_common` (a guarded correctness test). Validate-on-write tranche
+ops (`add`/`update`/`remove`/`set-assets`) with `DANGLING_STACK_REF` / `BAD_CAPITAL_STACK`
+integrity and rename-cascade of refs; exposed via `/models/:id/capital-stack/*` routes,
+five MCP tools (`add_tranche` … `get_capital_stack_analysis`), and a scenario-aware
+**Capital Stack** panel (ranked tranche table + residual-over-time). It's an analytical
+overlay — `computeModel` is unchanged and `A = L + E` still governs.
 
 **Model-editing controls.** Models are editable after creation, not just
 appendable: set the timeline period count up **or down** (`setPeriods`, trim
-allowed) and granularity; rename drivers/items/scenarios (renames cascade through
+allowed), granularity, and **start date** (`setTimelineStart` / `start` on
+create + `set_timeline`, so period labels reflect real history and commodity-bound
+drivers regenerate); rename drivers/items/scenarios (renames cascade through
 referencing formulas so nothing dangles) and edit their notes; delete drivers
-(ref-safe), scenarios (never the last), and whole models. Every edit returns a
-structured `ChangeSummary`, and adapters offer a `?summary=true` lean response so
-a batch of edits isn't forced to echo the full model each call.
+(ref-safe), scenarios (never the last), and whole models; **replay actuals** into
+any item (`replayActuals` swaps a formula for an actuals-backed input series and
+preserves the original for `restoreItemDefinition`) so real, lumpy history can
+drive valuation. Every edit returns a structured `ChangeSummary`, and adapters
+offer a `?summary=true` lean response — now the **MCP mutating tools' default**
+(opt into the full graph with `full:true`) so iterative editing stays light.
+
+**Display units.** Currency items/drivers carry an optional display **`scale`**
+(with a per-model `defaultScale`) so values stored in $millions render at true
+magnitude ($51B, not $51K); the statement grid and stat tiles annotate each figure
+with a `$` / `%` / `×` / `#` unit hint. Scale is presentation-only — never read by
+the engine.
 
 **Commodity price models.** Commodities are a first-class, extensible registry
 (`COMMODITIES`, mirroring `TEMPLATES`) of pure price-model generators
@@ -193,10 +255,11 @@ Currently only file snapshots exist.
 - ⬜ CF-ties-to-Δcash check, driver bounds/sanity, sign-convention checks.
 - ⬜ Surface warnings inline in the grid (not just an issues list).
 
-### 2.5 Templates & import ⬜
+### 2.5 Templates & import 🟡
 - ⬜ Add **DCF/valuation**, **LBO**, **FP&A budget-vs-actual** templates.
-- ⬜ **CSV import for actuals** with column→item mapping (SQLite `actuals`
-  table + `Actual` model already scaffolded).
+- ✅ **CSV import for actuals** with column→item mapping — shipped with the
+  backtesting loop (§2.1a): `POST /models/:id/actuals/import` + MCP
+  `import_actuals`; the `actuals` SQLite table is now wired via `ActualsStore`.
 - ⬜ **Excel import** as best-effort mapping with human confirmation (PRD §12
   risk — do not gate anything on it).
 
@@ -222,7 +285,9 @@ The dual desktop + web target has real work beyond the scaffold.
 ### 4.1 Desktop packaging 🟡
 - 🟡 `electron-builder.yml` + main-process fork of the API are wired.
 - ⬜ Rebuild `better-sqlite3` against Electron's ABI (`@electron/rebuild` /
-  `install-app-deps`); bundle API prod `node_modules`.
+  `install-app-deps`); bundle API prod `node_modules`. (Local/API runs use the
+  v12 prebuilt on Node 25; Electron still needs an ABI rebuild against its own
+  bundled Node.)
 - ⬜ Produce signed DMG / NSIS / AppImage; auto-update channel.
 - ⬜ First-run UX: pick a models directory, optional git-init of that directory.
 
@@ -247,13 +312,18 @@ same server + JSON/SQLite storage as local, no multi-tenant data model.
 ## 5. Cross-cutting tracks (continuous)
 
 ### Testing & correctness
-- ⬜ **Golden-file suite** for the engine (the calc-correctness moat, PRD §12).
-- ⬜ API functional tests (Japa is already set up in `apps/api`).
+- 🟡 **Engine unit suite** — 99 core tests (incl. accuracy, sensitivity,
+  backtest, calibrate, and an as-of ≡ ordinary-compute golden check). A formal
+  three-statement **golden-file** (A = L + E, CF ties Δcash) still lands with §1.1.
+- 🟡 **API functional tests** (Japa) — suites for editing, charts, commodities,
+  info, and the **analysis/backtesting loop** (`analysis.spec.ts`); broaden
+  coverage across the rest of the surface.
 - ⬜ UI component/e2e tests (Playwright) for the edit→recompute loop.
 - ⬜ MCP integration test in CI (the smoke script is the seed).
 
 ### Developer experience
-- ⬜ CI (lint + typecheck + test across workspaces on PR).
+- ⬜ CI (lint + typecheck + test across workspaces on PR) — **pin Node 25**
+  (repo `.nvmrc`; `better-sqlite3` v12 prebuilds).
 - ⬜ Pre-commit hooks; shared ESLint/Prettier config.
 - ⬜ Seed script + fixture models for local dev.
 
@@ -286,7 +356,9 @@ These change priority once answered — best grounded in the **Finance folder**:
 2. **Editable line items + formula editor in the UI** (§1.3).
 3. **Excel export** (§1.5).
 4. **AI change-review (accept/reject) UI** (§2.2) — the differentiator.
-5. **Sensitivity + goal seek** (§2.1).
+5. **Backtesting/analysis UI** (§2.1a/§2.1) — surface the shipped engine
+   (forecast-vs-actual, tornado, calibration diff); then **goal seek**.
 
 Everything above (1–4) is the shortest path to the MVP exit criteria; item 5
-opens V1.
+opens V1. The backtesting/sensitivity/calibration **engine + API + MCP** already
+landed (§2.1a) — item 5 is the web surface over it, not new engine work.

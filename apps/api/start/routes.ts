@@ -15,6 +15,7 @@ const ModelsController = () => import('#controllers/models_controller')
 const EditsController = () => import('#controllers/edits_controller')
 const InfoController = () => import('#controllers/info_controller')
 const AnalysisController = () => import('#controllers/analysis_controller')
+const MarketController = () => import('#controllers/market_controller')
 
 router.get('/', async () => ({
   service: 'greenthumb',
@@ -34,6 +35,14 @@ router
     router.get('/templates', [ModelsController, 'templates'])
     router.get('/commodities', [ModelsController, 'commodities'])
     router.get('/commodities/:commodityId/:modelId/preview', [ModelsController, 'commodityPreview'])
+
+    // Market data: fetch reads + materialize into a model. Keys stay in local config.
+    router.get('/market/providers', [MarketController, 'providers'])
+    router.put('/market/config', [MarketController, 'setConfig'])
+    router.get('/market/:symbol/quote', [MarketController, 'quote'])
+    router.get('/market/:symbol/history', [MarketController, 'history'])
+    router.post('/models/:id/actuals/import-market', [MarketController, 'importMarket'])
+    router.put('/models/:id/drivers/:driverId/seed-from-quote', [MarketController, 'seedFromQuote'])
     router.get('/models', [ModelsController, 'index'])
     router.post('/models', [ModelsController, 'store'])
     router.get('/models/:id', [ModelsController, 'show'])
@@ -64,6 +73,8 @@ router
     router.post('/models/:id/items', [EditsController, 'addItem'])
     router.patch('/models/:id/items/:itemId', [EditsController, 'updateItem'])
     router.put('/models/:id/items/:itemId/formula', [EditsController, 'setFormula'])
+    router.put('/models/:id/items/:itemId/replay', [EditsController, 'replayActuals'])
+    router.put('/models/:id/items/:itemId/restore', [EditsController, 'restoreItem'])
     router.delete('/models/:id/items/:itemId', [EditsController, 'removeItem'])
     router.post('/models/:id/drivers', [EditsController, 'addDriver'])
     router.put('/models/:id/drivers/:driverId/assumption', [EditsController, 'setAssumption'])
@@ -88,6 +99,13 @@ router
       EditsController,
       'setScenarioCommodityPrice',
     ])
+
+    // Capital stack (tranche CRUD + assets; each supports ?preview / ?override / ?summary)
+    router.post('/models/:id/capital-stack/tranches', [EditsController, 'addTranche'])
+    router.patch('/models/:id/capital-stack/tranches/:trancheId', [EditsController, 'updateTranche'])
+    router.delete('/models/:id/capital-stack/tranches/:trancheId', [EditsController, 'removeTranche'])
+    router.put('/models/:id/capital-stack/assets', [EditsController, 'setCapitalStackAssets'])
+    router.get('/models/:id/capital-stack/analysis', [ModelsController, 'capitalStackAnalysis'])
 
     // Charts (each supports ?preview=true and ?override=true)
     router.post('/models/:id/charts', [EditsController, 'addChart'])

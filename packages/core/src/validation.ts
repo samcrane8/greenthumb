@@ -115,6 +115,9 @@ export function validateModel(model: Model): ValidationIssue[] {
   // Charts and dashboard reference integrity (only when present).
   issues.push(...checkVisualization(model, known));
 
+  // Capital-stack reference + structure integrity (only when present).
+  issues.push(...checkCapitalStack(model, known));
+
   // Numerical integrity: balance sheet balances (A = L + E) per period, when the
   // model actually has balance-sheet items. Only run if structure is sound.
   if (!issues.some((i) => i.severity === "error")) {
@@ -234,6 +237,74 @@ function checkVisualization(model: Model, known: Set<string>): ValidationIssue[]
 }
 
 /** True when the model has no error-level issues (safe to commit). */
+/**
+ * Capital-stack integrity: every asset/notional/rate/shares ref resolves to a
+ * known item or driver; tranche ids are unique; at most one residual (common)
+ * tranche, and a common tranche needs a shares reference. Only runs when a stack
+ * is present.
+ */
+function checkCapitalStack(model: Model, known: Set<string>): ValidationIssue[] {
+  const stack = model.capitalStack;
+  if (!stack) return [];
+  const issues: ValidationIssue[] = [];
+
+  for (const ref of stack.assetRefs) {
+    if (!known.has(ref)) {
+      issues.push({
+        severity: "error",
+        code: "DANGLING_STACK_REF",
+        message: `Capital stack asset reference "${ref}" is not a known item or driver.`,
+      });
+    }
+  }
+
+  const ids = new Set<string>();
+  let commonCount = 0;
+  for (const t of stack.tranches) {
+    if (ids.has(t.id)) {
+      issues.push({
+        severity: "error",
+        code: "DUPLICATE_TRANCHE_ID",
+        message: `Two tranches share the id "${t.id}".`,
+        targetId: t.id,
+      });
+    }
+    ids.add(t.id);
+
+    for (const ref of [t.notionalRef, t.rateRef, t.sharesRef]) {
+      if (ref && !known.has(ref)) {
+        issues.push({
+          severity: "error",
+          code: "DANGLING_STACK_REF",
+          message: `Tranche "${t.name}" references "${ref}", which is not a known item or driver.`,
+          targetId: t.id,
+        });
+      }
+    }
+
+    if (t.kind === "common") {
+      commonCount += 1;
+      if (!t.sharesRef) {
+        issues.push({
+          severity: "error",
+          code: "BAD_CAPITAL_STACK",
+          message: `Common tranche "${t.name}" needs a shares reference for per-share residual.`,
+          targetId: t.id,
+        });
+      }
+    }
+  }
+  if (commonCount > 1) {
+    issues.push({
+      severity: "error",
+      code: "BAD_CAPITAL_STACK",
+      message: `A capital stack may have at most one common (residual) tranche; found ${commonCount}.`,
+    });
+  }
+
+  return issues;
+}
+
 export function isValid(issues: ValidationIssue[]): boolean {
   return !issues.some((i) => i.severity === "error");
 }

@@ -1,6 +1,6 @@
 import type { Statement } from '@greenthumb/core'
 import { Card } from '@/components/ui/card'
-import { formatNumber } from '@/lib/format'
+import { formatNumber, unitHint } from '@/lib/format'
 
 const HEADLINE = ['arr', 'mrr', 'ebitda', 'gross_profit', 'customers']
 
@@ -34,9 +34,12 @@ export function StatTiles({ statement }: { statement: Statement }) {
                       : 'var(--negative)',
               }}
             />
-            <div className="eyebrow">{r.name.replace(/_/g, ' ')}</div>
+            <div className="eyebrow">
+              {r.name.replace(/_/g, ' ')}
+              {unitHint(r.unit) && <span className="ml-1 text-muted-foreground">({unitHint(r.unit)})</span>}
+            </div>
             <div className="mt-2 font-mono text-2xl font-semibold tabular-nums tracking-tight">
-              {formatNumber(end, r.unit)}
+              {formatNumber(end, r.unit, r.scale)}
             </div>
             {start !== 0 && (
               <div

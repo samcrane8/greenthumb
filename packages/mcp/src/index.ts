@@ -72,7 +72,37 @@ function changeText(data: unknown): string {
   return ` (${parts}${change.detail ? ` — ${change.detail}` : ''})`
 }
 
-const server = new McpServer({ name: 'greenthumb', version: '0.1.0' })
+const server = new McpServer(
+  { name: 'greenthumb', version: '0.1.0' },
+  {
+    instructions: [
+      'greenthumb is a financial modeling engine. You build and edit models as semantic',
+      'graphs (drivers → time-aware formulas → outputs → scenarios), never cell coordinates.',
+      '',
+      'CRITICAL — a model that validates is not the same as a model that WORKS. Passing',
+      '`validate_model` only proves arithmetic integrity (it balances, no dangling refs). It',
+      'says NOTHING about whether the forecast is any good. After you build or change a model,',
+      'you MUST test it against reality before trusting or presenting it:',
+      '',
+      '  1. import_actuals — load observed history for the key output items (revenue, NAV/share,',
+      '     etc.). Without actuals there is no way to know if the model is right.',
+      '  2. run_backtest (with splitAt) — score the forecast vs actuals; read the HOLDOUT metrics,',
+      '     never the in-sample fit. Watch `bias`: a non-zero bias means the model systematically',
+      '     over/under-forecasts — a structural problem, not noise.',
+      '  3. walk_forward — the strongest test: many independent out-of-sample verdicts. Use it to',
+      '     decide whether the model actually predicts, or just fits a story.',
+      '  4. tornado — find the few drivers that actually move the answer before tuning anything.',
+      '  5. calibrate — fit those drivers to history; it returns a CANDIDATE only. Apply it with',
+      '     set_assumption (preview), then re-run run_backtest / walk_forward on the HOLDOUT. The',
+      '     change is a real improvement ONLY if out-of-sample error falls — never optimize to the',
+      '     in-sample fit. If `structuralFixLikely` is set, fix the model structure, not the inputs.',
+      '',
+      'The loop: build → validate → import_actuals → backtest/walk_forward → tornado → calibrate →',
+      'apply → re-backtest. Report the out-of-sample accuracy (MAE/RMSE/MAPE + bias) whenever you',
+      'present a model, so the user knows whether it works — not just that it balances.',
+    ].join('\n'),
+  }
+)
 
 // --- Discovery / read ------------------------------------------------------
 
@@ -143,13 +173,18 @@ server.registerTool(
   'validate_model',
   {
     title: 'Validate model',
-    description: 'Run integrity checks (balance, dangling refs, formula syntax) and return issues.',
+    description:
+      'Run integrity checks (balance, dangling refs, formula syntax) and return issues. NOTE: validation only proves arithmetic integrity — it does NOT prove the forecast is correct. To know if the model actually works, import_actuals then run_backtest / walk_forward.',
     inputSchema: { modelId: z.string() },
   },
   async ({ modelId }) => {
     try {
       const data = (await call(`/models/${modelId}/validate`)) as { issues: unknown[] }
-      return result(`${data.issues.length} issue(s).`, data)
+      const clean = data.issues.length === 0
+      const summary = clean
+        ? '0 issues — the model is arithmetically sound, but that does NOT mean the forecast is right. Next: import_actuals, then run_backtest (check holdout + bias) to test it against reality.'
+        : `${data.issues.length} issue(s).`
+      return result(summary, data)
     } catch (err) {
       return fail(err)
     }
@@ -182,18 +217,25 @@ server.registerTool(
   {
     title: 'Create model',
     description:
-      'Scaffold a new model from a template (blank, saas, bitcoin_treasury, …). Optionally choose the timeline granularity and period count up front.',
+      'Scaffold a new model from a template (blank, saas, bitcoin_treasury, …). Optionally choose the timeline granularity, period count, and START DATE up front — set `start` to the real first-period date (e.g. "2020-07-01") so period labels reflect actual history rather than the default.',
     inputSchema: {
       name: z.string(),
       type: z.string().default('blank'),
       granularity: z.enum(['monthly', 'quarterly', 'annual']).optional(),
       periods: z.number().int().positive().optional(),
+      start: z.string().optional().describe('ISO date of the first period, e.g. "2020-07-01".'),
     },
   },
-  async ({ name, type, granularity, periods }) => {
+  async ({ name, type, granularity, periods, start }) => {
     try {
       const timeline =
-        granularity || periods ? { ...(granularity ? { granularity } : {}), ...(periods ? { periods } : {}) } : undefined
+        granularity || periods || start
+          ? {
+              ...(granularity ? { granularity } : {}),
+              ...(periods ? { periods } : {}),
+              ...(start ? { start } : {}),
+            }
+          : undefined
       const data = await call('/models', { method: 'POST', body: { name, type, timeline } })
       return result(`Created model "${name}".`, data)
     } catch (err) {
@@ -204,7 +246,15 @@ server.registerTool(
 
 // --- Structure editing (all support preview) -------------------------------
 
-const previewArg = { preview: z.boolean().default(false) }
+const previewArg = {
+  preview: z.boolean().default(false),
+  // Mutating tools return a lean change summary by default (to keep iterative
+  // editing light). Set full:true to get the entire model graph back instead.
+  full: z
+    .boolean()
+    .default(false)
+    .describe('Return the full model graph instead of the lean change summary.'),
+}
 
 server.registerTool(
   'add_line_item',
@@ -229,15 +279,19 @@ server.registerTool(
       unit: z.enum(['currency', 'percent', 'count', 'ratio', 'per_unit', 'none']),
       expression: z.string().describe('Formula expression, e.g. "revenue * gross_margin".'),
       section: z.string().optional(),
+      scale: z
+        .number()
+        .optional()
+        .describe('Display magnitude for currency, e.g. 1000000 when values are in $millions. Presentation only.'),
       ...previewArg,
     },
   },
-  async ({ modelId, name, category, unit, expression, section, preview }) => {
+  async ({ modelId, name, category, unit, expression, section, scale, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/items`, {
         method: 'POST',
-        query: { preview: String(preview) },
-        body: { name, category, unit, section, definition: { kind: 'formula', expression } },
+        query: { preview: String(preview), summary: String(!full) },
+        body: { name, category, unit, section, scale, definition: { kind: 'formula', expression } },
       })
       return result(preview ? `Preview: add "${name}".` : `Added "${name}".`, data)
     } catch (err) {
@@ -253,11 +307,11 @@ server.registerTool(
     description: "Set a line item's formula expression. Set preview=true to dry-run.",
     inputSchema: { modelId: z.string(), itemId: z.string(), expression: z.string(), ...previewArg },
   },
-  async ({ modelId, itemId, expression, preview }) => {
+  async ({ modelId, itemId, expression, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/items/${itemId}/formula`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { expression },
       })
       return result(preview ? 'Preview: set formula.' : 'Formula set.', data)
@@ -281,11 +335,11 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, name, unit, shape, values, preview }) => {
+  async ({ modelId, name, unit, shape, values, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/drivers`, {
         method: 'POST',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { name, unit, shape, values },
       })
       return result(preview ? `Preview: add driver "${name}".` : `Added driver "${name}".`, data)
@@ -302,11 +356,11 @@ server.registerTool(
     description: "Set a driver's base values. Set preview=true to dry-run.",
     inputSchema: { modelId: z.string(), driverId: z.string(), values: z.array(z.number()), ...previewArg },
   },
-  async ({ modelId, driverId, values, preview }) => {
+  async ({ modelId, driverId, values, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/drivers/${driverId}/assumption`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { values },
       })
       return result(preview ? 'Preview: set assumption.' : 'Assumption set.', data)
@@ -350,11 +404,11 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, scenarioId, driverId, values, preview }) => {
+  async ({ modelId, scenarioId, driverId, values, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/scenarios/${scenarioId}/value`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { driverId, values },
       })
       return result(preview ? 'Preview: scenario override.' : 'Scenario override set.', data)
@@ -371,11 +425,11 @@ server.registerTool(
     description: 'Extend the timeline horizon by N periods.',
     inputSchema: { modelId: z.string(), periods: z.number().int().positive(), ...previewArg },
   },
-  async ({ modelId, periods, preview }) => {
+  async ({ modelId, periods, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/extend`, {
         method: 'POST',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { periods },
       })
       return result(preview ? `Preview: extend by ${periods}.` : `Extended by ${periods}.`, data)
@@ -428,11 +482,11 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, title, kind, series, scenarioId, preview }) => {
+  async ({ modelId, title, kind, series, scenarioId, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/charts`, {
         method: 'POST',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { title, kind, series, scenarioId },
       })
       return result(preview ? `Preview: add chart "${title}".` : `Added chart "${title}".`, data)
@@ -456,7 +510,7 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, chartId, title, kind, series, preview }) => {
+  async ({ modelId, chartId, title, kind, series, preview, full }) => {
     try {
       const patch: Record<string, unknown> = {}
       if (title !== undefined) patch.title = title
@@ -464,7 +518,7 @@ server.registerTool(
       if (series !== undefined) patch.series = series
       const data = await call(`/models/${modelId}/charts/${chartId}`, {
         method: 'PATCH',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: patch,
       })
       return result(preview ? 'Preview: update chart.' : 'Chart updated.', data)
@@ -481,11 +535,11 @@ server.registerTool(
     description: 'Remove a chart (and any dashboard widgets that referenced it).',
     inputSchema: { modelId: z.string(), chartId: z.string(), ...previewArg },
   },
-  async ({ modelId, chartId, preview }) => {
+  async ({ modelId, chartId, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/charts/${chartId}`, {
         method: 'DELETE',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
       })
       return result(preview ? 'Preview: remove chart.' : 'Chart removed.', data)
     } catch (err) {
@@ -538,11 +592,11 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, kind, refId, text, title, layout, preview }) => {
+  async ({ modelId, kind, refId, text, title, layout, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/dashboard/widgets`, {
         method: 'POST',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { kind, refId, text, title, layout },
       })
       return result(preview ? `Preview: add ${kind} widget.` : `Added ${kind} widget.`, data)
@@ -567,7 +621,7 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, widgetId, refId, text, title, layout, preview }) => {
+  async ({ modelId, widgetId, refId, text, title, layout, preview, full }) => {
     try {
       const patch: Record<string, unknown> = {}
       if (refId !== undefined) patch.refId = refId
@@ -576,7 +630,7 @@ server.registerTool(
       if (layout !== undefined) patch.layout = layout
       const data = await call(`/models/${modelId}/dashboard/widgets/${widgetId}`, {
         method: 'PATCH',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: patch,
       })
       return result(preview ? 'Preview: update widget.' : 'Widget updated.', data)
@@ -593,11 +647,11 @@ server.registerTool(
     description: 'Remove a dashboard widget by id.',
     inputSchema: { modelId: z.string(), widgetId: z.string(), ...previewArg },
   },
-  async ({ modelId, widgetId, preview }) => {
+  async ({ modelId, widgetId, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/dashboard/widgets/${widgetId}`, {
         method: 'DELETE',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
       })
       return result(preview ? 'Preview: remove widget.' : 'Widget removed.', data)
     } catch (err) {
@@ -613,11 +667,11 @@ server.registerTool(
     description: 'Reorder dashboard widgets. Pass every existing widget id exactly once in the new order.',
     inputSchema: { modelId: z.string(), order: z.array(z.string()), ...previewArg },
   },
-  async ({ modelId, order, preview }) => {
+  async ({ modelId, order, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/dashboard/order`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { order },
       })
       return result(preview ? 'Preview: reorder dashboard.' : 'Dashboard reordered.', data)
@@ -634,20 +688,21 @@ server.registerTool(
   {
     title: 'Set timeline',
     description:
-      "Set a model's period count (up or down — trim allowed) and/or granularity. Non-destructive: shrinking then re-growing restores prior values.",
+      "Set a model's period count (up or down — trim allowed), granularity, and/or START DATE. Setting `start` (ISO date, e.g. \"2020-07-01\") re-anchors period labels to real history and regenerates commodity-bound drivers. Non-destructive: shrinking then re-growing restores prior values.",
     inputSchema: {
       modelId: z.string(),
       periods: z.number().int().positive().optional(),
       granularity: z.enum(['monthly', 'quarterly', 'annual']).optional(),
+      start: z.string().optional().describe('ISO date of the first period, e.g. "2020-07-01".'),
       ...previewArg,
     },
   },
-  async ({ modelId, periods, granularity, preview }) => {
+  async ({ modelId, periods, granularity, start, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/timeline`, {
         method: 'PUT',
-        query: { preview: String(preview) },
-        body: { periods, granularity },
+        query: { preview: String(preview), summary: String(!full) },
+        body: { periods, granularity, start },
       })
       return result(preview ? 'Preview: set timeline.' : `Timeline set${changeText(data)}.`, data)
     } catch (err) {
@@ -663,11 +718,11 @@ server.registerTool(
     description: 'Rename a driver; referencing formulas are rewritten in lockstep. Set preview=true to dry-run.',
     inputSchema: { modelId: z.string(), driverId: z.string(), name: z.string(), ...previewArg },
   },
-  async ({ modelId, driverId, name, preview }) => {
+  async ({ modelId, driverId, name, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/drivers/${driverId}/name`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { name },
       })
       return result(preview ? 'Preview: rename driver.' : `Driver renamed${changeText(data)}.`, data)
@@ -684,11 +739,11 @@ server.registerTool(
     description: 'Rename a line item; referencing formulas are rewritten in lockstep. Set preview=true to dry-run.',
     inputSchema: { modelId: z.string(), itemId: z.string(), name: z.string(), ...previewArg },
   },
-  async ({ modelId, itemId, name, preview }) => {
+  async ({ modelId, itemId, name, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/items/${itemId}/name`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { name },
       })
       return result(preview ? 'Preview: rename item.' : `Item renamed${changeText(data)}.`, data)
@@ -705,11 +760,11 @@ server.registerTool(
     description: 'Rename a scenario. Set preview=true to dry-run.',
     inputSchema: { modelId: z.string(), scenarioId: z.string(), name: z.string(), ...previewArg },
   },
-  async ({ modelId, scenarioId, name, preview }) => {
+  async ({ modelId, scenarioId, name, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/scenarios/${scenarioId}/name`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { name },
       })
       return result(preview ? 'Preview: rename scenario.' : `Scenario renamed${changeText(data)}.`, data)
@@ -732,13 +787,13 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, entityKind, entityId, notes, preview }) => {
+  async ({ modelId, entityKind, entityId, notes, preview, full }) => {
     try {
       const path =
         entityKind === 'driver'
           ? `/models/${modelId}/drivers/${entityId}/notes`
           : `/models/${modelId}/items/${entityId}/notes`
-      const data = await call(path, { method: 'PUT', query: { preview: String(preview) }, body: { notes } })
+      const data = await call(path, { method: 'PUT', query: { preview: String(preview), summary: String(!full) }, body: { notes } })
       return result(preview ? 'Preview: set notes.' : `Notes set${changeText(data)}.`, data)
     } catch (err) {
       return fail(err)
@@ -754,11 +809,11 @@ server.registerTool(
       'Remove a driver (and strip it from scenario overrides). Fails if a formula still references it, unless override=true.',
     inputSchema: { modelId: z.string(), driverId: z.string(), ...previewArg },
   },
-  async ({ modelId, driverId, preview }) => {
+  async ({ modelId, driverId, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/drivers/${driverId}`, {
         method: 'DELETE',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
       })
       return result(preview ? 'Preview: remove driver.' : `Driver removed${changeText(data)}.`, data)
     } catch (err) {
@@ -774,11 +829,11 @@ server.registerTool(
     description: 'Remove a scenario. Refuses to remove the last remaining scenario.',
     inputSchema: { modelId: z.string(), scenarioId: z.string(), ...previewArg },
   },
-  async ({ modelId, scenarioId, preview }) => {
+  async ({ modelId, scenarioId, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/scenarios/${scenarioId}`, {
         method: 'DELETE',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
       })
       return result(preview ? 'Preview: remove scenario.' : `Scenario removed${changeText(data)}.`, data)
     } catch (err) {
@@ -837,11 +892,11 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, driverId, commodity, model, params, preview }) => {
+  async ({ modelId, driverId, commodity, model, params, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/drivers/${driverId}/commodity`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { commodity, model, params },
       })
       return result(
@@ -861,11 +916,11 @@ server.registerTool(
     description: "Regenerate a bound driver's price series from its stored model over the current timeline.",
     inputSchema: { modelId: z.string(), driverId: z.string(), ...previewArg },
   },
-  async ({ modelId, driverId, preview }) => {
+  async ({ modelId, driverId, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/drivers/${driverId}/regenerate`, {
         method: 'POST',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
       })
       return result(preview ? 'Preview: regenerate price.' : `Price regenerated${changeText(data)}.`, data)
     } catch (err) {
@@ -890,11 +945,11 @@ server.registerTool(
       ...previewArg,
     },
   },
-  async ({ modelId, scenarioId, driverId, commodity, model, params, preview }) => {
+  async ({ modelId, scenarioId, driverId, commodity, model, params, preview, full }) => {
     try {
       const data = await call(`/models/${modelId}/scenarios/${scenarioId}/drivers/${driverId}/commodity`, {
         method: 'PUT',
-        query: { preview: String(preview) },
+        query: { preview: String(preview), summary: String(!full) },
         body: { commodity, model, params },
       })
       return result(
@@ -1083,6 +1138,288 @@ server.registerTool(
         body: { item, drivers, metric, window, bounds, acceptable, scenario },
       })
       return result(`Calibration candidate for ${item} (not committed).`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'replay_actuals',
+  {
+    title: 'Replay actuals into an item',
+    description:
+      "Replace an item's formula with an actuals-backed input series, so real observed history drives it (and everything downstream) instead of the model's engine. Use this to replay lumpy, discretionary history the formula can't reproduce (e.g. a treasury's actual BTC holdings / share count). The original formula is preserved — restore it with restore_item. When `values` is omitted, the item's stored actuals are used. Validates on write: if the replayed values break the balance sheet, the issue is surfaced.",
+    inputSchema: {
+      modelId: z.string(),
+      itemId: z.string(),
+      values: z.array(z.number().nullable()).optional().describe('Series to replay; omit to use the stored actuals.'),
+      ...previewArg,
+    },
+  },
+  async ({ modelId, itemId, values, preview, full }) => {
+    try {
+      const data = await call(`/models/${modelId}/items/${itemId}/replay`, {
+        method: 'PUT',
+        query: { preview: String(preview), summary: String(!full) },
+        body: { values },
+      })
+      return result(preview ? 'Preview: replay actuals.' : `Replayed actuals into item${changeText(data)}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'restore_item',
+  {
+    title: 'Restore a replayed item',
+    description: "Restore an item that was replayed from actuals back to its original formula definition.",
+    inputSchema: { modelId: z.string(), itemId: z.string(), ...previewArg },
+  },
+  async ({ modelId, itemId, preview, full }) => {
+    try {
+      const data = await call(`/models/${modelId}/items/${itemId}/restore`, {
+        method: 'PUT',
+        query: { preview: String(preview), summary: String(!full) },
+      })
+      return result(preview ? 'Preview: restore item.' : `Restored item definition${changeText(data)}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+// --- Market data -----------------------------------------------------------
+
+server.registerTool(
+  'list_data_providers',
+  {
+    title: 'List data providers',
+    description: 'List available market-data providers and whether each is configured (keyless default works with no key).',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      return result('Available data providers.', await call('/market/providers'))
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'get_quote',
+  {
+    title: 'Get quote',
+    description: 'Fetch a current price quote for a symbol from a market-data provider.',
+    inputSchema: { symbol: z.string(), provider: z.string().optional() },
+  },
+  async ({ symbol, provider }) => {
+    try {
+      return result(`Quote for ${symbol}.`, await call(`/market/${symbol}/quote`, { query: { provider } }))
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'get_price_history',
+  {
+    title: 'Get price history',
+    description: 'Fetch a symbol\'s daily price history from a provider (optionally bounded by from/to ISO dates).',
+    inputSchema: {
+      symbol: z.string(),
+      provider: z.string().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    },
+  },
+  async ({ symbol, provider, from, to }) => {
+    try {
+      const data = await call(`/market/${symbol}/history`, { query: { provider, from, to } })
+      return result(`Price history for ${symbol}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'import_market_actuals',
+  {
+    title: 'Import market actuals',
+    description:
+      "Fetch a symbol's price history and materialize it into a model's actuals for an item (aligned to the timeline, advancing actualsThrough). Price-only — backtest-safe. Feeds scoring/backtesting.",
+    inputSchema: {
+      modelId: z.string(),
+      symbol: z.string(),
+      item: z.string().describe('Item name or id to import the price series into.'),
+      provider: z.string().optional(),
+    },
+  },
+  async ({ modelId, symbol, item, provider }) => {
+    try {
+      const data = await call(`/models/${modelId}/actuals/import-market`, {
+        method: 'POST',
+        query: { provider },
+        body: { symbol, item },
+      })
+      return result(`Imported ${symbol} history into ${item}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'seed_driver_from_quote',
+  {
+    title: 'Seed driver from quote',
+    description: "Set a driver's value from a symbol's current quote (records the source). Recomputes the model.",
+    inputSchema: { modelId: z.string(), driverId: z.string(), symbol: z.string(), provider: z.string().optional() },
+  },
+  async ({ modelId, driverId, symbol, provider }) => {
+    try {
+      const data = await call(`/models/${modelId}/drivers/${driverId}/seed-from-quote`, {
+        method: 'PUT',
+        query: { provider },
+        body: { symbol },
+      })
+      return result(`Seeded driver from ${symbol}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+// --- Capital stack ---------------------------------------------------------
+
+const trancheKind = z.enum(['senior_debt', 'subordinated_debt', 'convertible', 'preferred', 'common'])
+
+server.registerTool(
+  'add_tranche',
+  {
+    title: 'Add capital-stack tranche',
+    description:
+      "Add a tranche to the model's capital stack. `notionalRef` names a model series for its claim; `rate`/`rateRef` for cost of capital; `sharesRef` for common; converts use `conversionPrice` + `convertAsEquity`.",
+    inputSchema: {
+      modelId: z.string(),
+      name: z.string(),
+      kind: trancheKind,
+      seniority: z.number(),
+      notionalRef: z.string().optional(),
+      rate: z.number().optional(),
+      rateRef: z.string().optional(),
+      sharesRef: z.string().optional(),
+      conversionPrice: z.number().optional(),
+      convertAsEquity: z.number().optional(),
+      ...previewArg,
+    },
+  },
+  async ({ modelId, preview, ...body }) => {
+    try {
+      const data = await call(`/models/${modelId}/capital-stack/tranches`, {
+        method: 'POST',
+        query: { preview: String(preview) },
+        body,
+      })
+      return result(preview ? `Preview: add tranche "${body.name}".` : `Added tranche "${body.name}"${changeText(data)}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'update_tranche',
+  {
+    title: 'Update tranche',
+    description: 'Update a tranche (seniority, refs, rate, convert terms). Set preview=true to dry-run.',
+    inputSchema: {
+      modelId: z.string(),
+      trancheId: z.string(),
+      name: z.string().optional(),
+      kind: trancheKind.optional(),
+      seniority: z.number().optional(),
+      notionalRef: z.string().optional(),
+      rate: z.number().optional(),
+      rateRef: z.string().optional(),
+      sharesRef: z.string().optional(),
+      conversionPrice: z.number().optional(),
+      convertAsEquity: z.number().optional(),
+      ...previewArg,
+    },
+  },
+  async ({ modelId, trancheId, preview, ...patch }) => {
+    try {
+      const data = await call(`/models/${modelId}/capital-stack/tranches/${trancheId}`, {
+        method: 'PATCH',
+        query: { preview: String(preview) },
+        body: patch,
+      })
+      return result(preview ? 'Preview: update tranche.' : `Tranche updated${changeText(data)}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'remove_tranche',
+  {
+    title: 'Remove tranche',
+    description: 'Remove a tranche from the capital stack.',
+    inputSchema: { modelId: z.string(), trancheId: z.string(), ...previewArg },
+  },
+  async ({ modelId, trancheId, preview }) => {
+    try {
+      const data = await call(`/models/${modelId}/capital-stack/tranches/${trancheId}`, {
+        method: 'DELETE',
+        query: { preview: String(preview) },
+      })
+      return result(preview ? 'Preview: remove tranche.' : `Tranche removed${changeText(data)}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'set_capital_stack_assets',
+  {
+    title: 'Set capital-stack assets',
+    description: "Set the asset series (by name) the stack's claims are paid from.",
+    inputSchema: { modelId: z.string(), assetRefs: z.array(z.string()), ...previewArg },
+  },
+  async ({ modelId, assetRefs, preview }) => {
+    try {
+      const data = await call(`/models/${modelId}/capital-stack/assets`, {
+        method: 'PUT',
+        query: { preview: String(preview) },
+        body: { assetRefs },
+      })
+      return result(preview ? 'Preview: set assets.' : `Capital-stack assets set${changeText(data)}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'get_capital_stack_analysis',
+  {
+    title: 'Get capital-stack analysis',
+    description:
+      'Compute the seniority waterfall for a scenario: per-tranche claim/paid/recovery/coverage, residual-to-common, NAV/share, blended cost of capital, implied leverage, and diluted shares.',
+    inputSchema: { modelId: z.string(), scenarioId: z.string().optional() },
+  },
+  async ({ modelId, scenarioId }) => {
+    try {
+      const data = await call(`/models/${modelId}/capital-stack/analysis`, { query: { scenario: scenarioId } })
+      return result('Capital-stack waterfall analysis.', data)
     } catch (err) {
       return fail(err)
     }

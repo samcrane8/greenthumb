@@ -1,10 +1,16 @@
 /** Presentation helpers for the model grid and stat tiles. */
 
-export function formatNumber(value: number, unit: string): string {
+/**
+ * Format a value for display. `scale` is a display magnitude (e.g. 1_000_000 when
+ * the value is stored in $millions) — presentation only, applied to currency so a
+ * $M-denominated figure renders at its true size. Percent values are stored as
+ * decimal fractions (0.105 → 10.5%).
+ */
+export function formatNumber(value: number, unit: string, scale = 1): string {
   if (!Number.isFinite(value)) return '—'
   switch (unit) {
     case 'currency':
-      return compactCurrency(value)
+      return compactCurrency(value * (scale || 1))
     case 'percent':
       return `${(value * 100).toFixed(1)}%`
     case 'count':
@@ -13,6 +19,27 @@ export function formatNumber(value: number, unit: string): string {
       return value.toFixed(2)
     default:
       return value.toLocaleString(undefined, { maximumFractionDigits: 1 })
+  }
+}
+
+/**
+ * A short unit hint for annotating a column or tile, so a reader can tell a
+ * dollar figure from a ratio from a percentage at a glance. Because
+ * `formatNumber` renders currency at true magnitude (…K/M/B), the hint marks the
+ * quantity *type* — `$`, `%`, `×`, `#` — not the storage scale.
+ */
+export function unitHint(unit: string): string {
+  switch (unit) {
+    case 'currency':
+      return '$'
+    case 'percent':
+      return '%'
+    case 'ratio':
+      return '×'
+    case 'count':
+      return '#'
+    default:
+      return ''
   }
 }
 

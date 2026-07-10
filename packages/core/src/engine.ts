@@ -156,7 +156,18 @@ export function computeModel(
     }
   }
 
-  const result: ComputedModel = { scenarioId: scenario.id, series, converged, iterations };
+  // Expose the scenario-applied driver series so adapters can resolve a name to an
+  // item or a driver (items win) without duplicating driver expansion.
+  const driversOut: Record<string, number[]> = {};
+  for (const [id, values] of driverSeries) driversOut[id] = values;
+
+  const result: ComputedModel = {
+    scenarioId: scenario.id,
+    series,
+    drivers: driversOut,
+    converged,
+    iterations,
+  };
   if (asOf !== undefined && lookAhead.size > 0) result.lookAhead = [...lookAhead];
   return result;
 }

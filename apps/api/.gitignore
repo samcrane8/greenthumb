@@ -23,3 +23,6 @@ yarn-error.log
 
 # Platform specific
 .DS_Store
+
+# Local-only market-data provider keys — never commit
+storage/providers.json

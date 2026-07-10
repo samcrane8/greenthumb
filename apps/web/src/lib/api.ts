@@ -7,9 +7,33 @@ import type {
   ModelType,
   Statement,
   StatementKind,
+  Tranche,
   ValidationIssue,
   Widget,
 } from '@greenthumb/core'
+
+/** Mirror of core's CapitalStackAnalysis (web imports types only). */
+export type CapitalStackAnalysis = {
+  scenarioId: string
+  periods: number
+  assetValue: number[]
+  tranches: Array<{
+    id: string
+    name: string
+    kind: Tranche['kind']
+    seniority: number
+    claim: number[]
+    paid: number[]
+    recovery: number[]
+    claimsAhead: number[]
+    coverage: number[]
+  }>
+  residualToCommon: number[]
+  navPerShare: number[]
+  dilutedShares: number[]
+  blendedCost: number[]
+  impliedLeverage: number[]
+}
 
 import { resolveTarget } from './apiTarget'
 import { getSettings } from '@/settings/store'
@@ -99,6 +123,52 @@ export const api = {
   listModels: () => req<ModelListItem[]>('/models'),
   templates: () => req<TemplateInfo[]>('/templates'),
   commodities: () => req<CommodityInfo[]>('/commodities'),
+
+  // --- Capital stack -------------------------------------------------------
+  capitalStackAnalysis: (id: string, scenario?: string) =>
+    req<CapitalStackAnalysis>(
+      `/models/${id}/capital-stack/analysis${scenario ? `?scenario=${scenario}` : ''}`
+    ),
+  addTranche: (id: string, tranche: Omit<Tranche, 'id'>) =>
+    req<EditResult>(`/models/${id}/capital-stack/tranches`, {
+      method: 'POST',
+      body: JSON.stringify(tranche),
+    }),
+  updateTranche: (id: string, trancheId: string, patch: Partial<Omit<Tranche, 'id'>>) =>
+    req<EditResult>(`/models/${id}/capital-stack/tranches/${trancheId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  removeTranche: (id: string, trancheId: string) =>
+    req<EditResult>(`/models/${id}/capital-stack/tranches/${trancheId}`, { method: 'DELETE' }),
+  setCapitalStackAssets: (id: string, assetRefs: string[]) =>
+    req<EditResult>(`/models/${id}/capital-stack/assets`, {
+      method: 'PUT',
+      body: JSON.stringify({ assetRefs }),
+    }),
+
+  // --- Market data ---------------------------------------------------------
+  dataProviders: () =>
+    req<Array<{ id: string; label: string; requiresKey: boolean; configured: boolean }>>('/market/providers'),
+  setProviderKey: (provider: string, key: string) =>
+    req<{ provider: string; configured: boolean }>('/market/config', {
+      method: 'PUT',
+      body: JSON.stringify({ provider, key }),
+    }),
+  marketQuote: (symbol: string, provider?: string) =>
+    req<{ symbol: string; price: number; source: string; asOf: string }>(
+      `/market/${encodeURIComponent(symbol)}/quote${provider ? `?provider=${provider}` : ''}`
+    ),
+  importMarketActuals: (id: string, symbol: string, item: string, provider?: string) =>
+    req<{ item: string; ingested: number; actualsThrough: number; source: string; asOf: string }>(
+      `/models/${id}/actuals/import-market${provider ? `?provider=${provider}` : ''}`,
+      { method: 'POST', body: JSON.stringify({ symbol, item }) }
+    ),
+  seedDriverFromQuote: (id: string, driverId: string, symbol: string, provider?: string) =>
+    req<EditResult & { seeded: { symbol: string; price: number; source: string } }>(
+      `/models/${id}/drivers/${driverId}/seed-from-quote${provider ? `?provider=${provider}` : ''}`,
+      { method: 'PUT', body: JSON.stringify({ symbol }) }
+    ),
   commodityPreview: (
     commodityId: string,
     modelId: string,

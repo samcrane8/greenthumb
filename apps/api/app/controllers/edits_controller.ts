@@ -18,6 +18,9 @@ import {
   reorderDashboard,
   setPeriods,
   setGranularity,
+  setTimelineStart,
+  replayActuals,
+  restoreItemDefinition,
   renameDriver,
   renameItem,
   renameScenario,
@@ -27,6 +30,10 @@ import {
   setCommodityPrice,
   generateCommodityPrice,
   setScenarioCommodityPrice,
+  addTranche,
+  updateTranche,
+  removeTranche,
+  setCapitalStackAssets,
   type CommodityPriceBinding,
   type Granularity,
   type Model,
@@ -34,6 +41,7 @@ import {
 } from '@greenthumb/core'
 
 import { modelStore } from '#services/model_store'
+import { actualsStore } from '#services/actuals_store'
 
 /**
  * Semantic edit operations (PRD §8). Each endpoint loads the model, applies one
@@ -136,12 +144,38 @@ export default class EditsController {
   async setTimeline(ctx: HttpContext) {
     const periods = ctx.request.input('periods')
     const granularity = ctx.request.input('granularity') as Granularity | undefined
+    const start = ctx.request.input('start') as string | undefined
     return this.#apply(ctx, (model) => {
       let result: OpResult = { model, issues: [], ok: true }
       if (periods !== undefined && periods !== null) result = setPeriods(model, Number(periods))
       if (granularity) result = setGranularity(result.model, granularity)
+      if (start) result = setTimelineStart(result.model, start)
       return result
     })
+  }
+
+  // --- Actuals replay -------------------------------------------------------
+
+  /**
+   * Replace an item's definition with an actuals-backed input series. When
+   * `values` is not supplied, seed from the item's stored actuals.
+   */
+  async replayActuals(ctx: HttpContext) {
+    const { id, itemId } = ctx.params
+    let values = ctx.request.input('values') as (number | null)[] | undefined
+    if (!Array.isArray(values)) {
+      const model = await modelStore().get(id)
+      if (!model) return ctx.response.notFound({ error: 'Model not found' })
+      values = await actualsStore().series(id, itemId, model.timeline.periods)
+    }
+    const series = values
+    return this.#apply(ctx, (model) => replayActuals(model, itemId, series))
+  }
+
+  /** Restore a replayed item to its preserved original definition. */
+  async restoreItem(ctx: HttpContext) {
+    const { itemId } = ctx.params
+    return this.#apply(ctx, (model) => restoreItemDefinition(model, itemId))
   }
 
   // --- Rename & notes -------------------------------------------------------
@@ -186,6 +220,27 @@ export default class EditsController {
   async removeScenario(ctx: HttpContext) {
     const { scenarioId } = ctx.params
     return this.#apply(ctx, (model) => removeScenario(model, scenarioId))
+  }
+
+  // --- Capital stack --------------------------------------------------------
+
+  async addTranche(ctx: HttpContext) {
+    return this.#apply(ctx, (model) => addTranche(model, ctx.request.body() as never))
+  }
+
+  async updateTranche(ctx: HttpContext) {
+    const { trancheId } = ctx.params
+    return this.#apply(ctx, (model) => updateTranche(model, trancheId, ctx.request.body() as never))
+  }
+
+  async removeTranche(ctx: HttpContext) {
+    const { trancheId } = ctx.params
+    return this.#apply(ctx, (model) => removeTranche(model, trancheId))
+  }
+
+  async setCapitalStackAssets(ctx: HttpContext) {
+    const assetRefs = ctx.request.input('assetRefs', []) as string[]
+    return this.#apply(ctx, (model) => setCapitalStackAssets(model, assetRefs))
   }
 
   // --- Commodity pricing ----------------------------------------------------

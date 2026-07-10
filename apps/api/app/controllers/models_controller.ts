@@ -4,6 +4,7 @@ import {
   computeModel,
   getStatement,
   getChartData,
+  analyzeCapitalStack,
   compareScenarios,
   validateModel,
   listCommodities,
@@ -176,6 +177,19 @@ export default class ModelsController {
       return response.ok(getChartData(model, scenario, params.chartId))
     } catch (err) {
       return response.notFound({ error: (err as Error).message })
+    }
+  }
+
+  /** GET /api/models/:id/capital-stack/analysis?scenario=:id — seniority waterfall. */
+  async capitalStackAnalysis({ params, request, response }: HttpContext) {
+    const model = await modelStore().get(params.id)
+    if (!model) return response.notFound({ error: 'Model not found' })
+    const scenario = this.#resolveScenario(model, request.input('scenario'))
+    if (!scenario) return response.badRequest({ error: 'Unknown scenario' })
+    try {
+      return response.ok(analyzeCapitalStack(model, scenario))
+    } catch (err) {
+      return response.badRequest({ error: (err as Error).message })
     }
   }
 

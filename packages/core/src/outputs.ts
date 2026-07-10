@@ -17,6 +17,8 @@ export interface StatementRow {
   category: ItemCategory;
   unit: string;
   values: number[];
+  /** Display magnitude (item scale, else the model default, else 1). Presentation only. */
+  scale: number;
 }
 
 export interface Statement {
@@ -50,6 +52,7 @@ export function getStatement(
       category: i.category,
       unit: i.unit,
       values: computed.series[i.id] ?? [],
+      scale: i.scale ?? model.meta.defaultScale ?? 1,
     }));
   return { kind, scenarioId: scenario.id, periods: model.timeline.periods, rows };
 }

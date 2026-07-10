@@ -30,6 +30,23 @@ export interface CreateModelOptions {
 
 const now = () => new Date().toISOString();
 
+/**
+ * A monotonic mean-reversion path `start -> target` at reversion speed `k`,
+ * materialized as a series. Used to seed the default treasury mNAV path so the
+ * template reproduces its prior behavior while the premium is now an editable
+ * series (settable to a non-monotonic / observed cycle).
+ */
+function meanReversionPath(start: number, target: number, k: number, periods: number): number[] {
+  const out: number[] = [];
+  let prev = start;
+  for (let i = 0; i < periods; i++) {
+    const v = i === 0 ? start : prev + (target - prev) / k;
+    out.push(v);
+    prev = v;
+  }
+  return out;
+}
+
 function defaultTimeline(overrides?: Partial<Timeline>): Timeline {
   return {
     granularity: "monthly",
@@ -182,9 +199,11 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
     driver("preferred_start", "currency", "scalar", [576], "Perpetual preferred notional at start ($M)"),
     driver("cash_start", "currency", "scalar", [93], "Cash buffer at start ($M)"),
     driver("other_holdings", "currency", "scalar", [50], "Genuine other holdings, e.g. STRC ($M), held flat"),
-    driver("debt_notional", "currency", "scalar", [0], "Straight + convertible debt notional ($M); subtracts from common NAV"),
+    driver("debt_notional", "currency", "scalar", [0], "Straight debt notional ($M); subtracts from common NAV at face value"),
+    driver("convertible_debt", "currency", "scalar", [0], "Convertible debt notional ($M)"),
+    driver("convert_as_equity", "ratio", "scalar", [1],
+      "1 = convertibles treated as LOOK-THROUGH EQUITY: excluded from senior claims, so NAV-to-common isn't wiped in a drawdown. This first-order model does NOT auto-add conversion shares — reflect the dilution in the share count (raise shares_start, or replay actual shares). 0 = face-value debt (subtracts at par)."),
     driver("shares_start", "count", "scalar", [75.77], "Common shares outstanding at start (M)"),
-    driver("mnav_start", "ratio", "scalar", [1.63], "Starting common mNAV (premium on the levered claim)"),
     // Market + capital-raise assumptions (the tunable levers).
     driver("issuance_start", "currency", "scalar", [910], "Preferred issuance at start of ramp ($M/qtr)"),
     driver("issuance_peak", "currency", "scalar", [4550], "Preferred issuance at peak of ramp ($M/qtr)"),
@@ -192,8 +211,12 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
     driver("div_rate", "percent", "scalar", [0.13], "Preferred dividend rate (annual)"),
     driver("atm_raise", "currency", "scalar", [390], "Common ATM issuance ($M/qtr)"),
     driver("amplification_cap", "ratio", "scalar", [0.5], "Max preferred notional / reserve"),
-    driver("mnav_target", "ratio", "scalar", [1.5], "Long-run mNAV target"),
-    driver("mnav_reversion", "count", "scalar", [5], "mNAV mean-reversion speed (quarters)"),
+    // mNAV is a first-class SERIES so the premium can follow a non-monotonic /
+    // observed path (real MSTR mNAV is U-shaped: 3.4x -> 0.74x -> 2.1x -> ~0.95x).
+    // The default reproduces the prior monotonic mean-reversion (1.63 -> 1.5 target,
+    // reversion speed 5), and can be overwritten with observed quarterly mNAV.
+    driver("mnav_path", "ratio", "series", meanReversionPath(1.63, 1.5, 5, periods),
+      "Common mNAV premium per period — settable to an observed/cyclical path"),
   ];
 
   // BTC price is a COMMODITY-PRICED driver: the Bitcoin power-law trend plus
@@ -268,14 +291,25 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
     f("common_shares", "kpi", "count",
       "if(prior(common_shares) == 0, shares_start, prior(common_shares)) + new_shares", "equity"),
 
-    // The levered residual claim.
+    // The levered residual claim. Senior (straight) debt and face-value converts
+    // are separate claims: converts rank JUNIOR to senior debt (a subordinated
+    // tranche in the capital stack) and only bite when NOT treated as look-through
+    // equity — so a deep drawdown where BTC ≈ senior debt doesn't wipe the common's
+    // option-like value the way face-value debt would.
+    f("senior_debt", "other", "currency", "debt_notional", "equity"),
+    f("convert_claim", "other", "currency",
+      "convertible_debt * (1 - convert_as_equity)", "equity"),
     f("nav_to_common", "kpi", "currency",
-      "reserve + cash + other_holdings - debt_notional - preferred_notional", "equity"),
+      "reserve + cash + other_holdings - senior_debt - convert_claim - preferred_notional", "equity"),
     f("nav_per_share", "kpi", "currency", "nav_to_common / common_shares", "equity"),
-    f("mnav", "kpi", "ratio",
-      "if(prior(mnav) == 0, mnav_start, prior(mnav) + (mnav_target - prior(mnav)) / mnav_reversion)", "equity"),
+    // mNAV reads the first-class premium path (default: mean-reversion; overridable
+    // to an observed cyclical series). No longer a monotonic recurrence.
+    f("mnav", "kpi", "ratio", "mnav_path", "equity"),
     f("asst_price", "kpi", "currency", "max(nav_per_share, 0) * mnav", "equity"),
     f("asst_mcap", "kpi", "currency", "asst_price * common_shares", "equity"),
+    // Treasury "implied leverage" is the reference metric: crypto reserve per dollar
+    // of common equity (handbook B1). The capital-stack panel additionally shows a
+    // broader total-assets ÷ residual leverage — a different, generic measure.
     f("implied_leverage", "kpi", "ratio",
       "if(nav_to_common <= 0, 99, reserve / nav_to_common)", "equity"),
   ];
@@ -323,6 +357,44 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
   model.drivers = drivers;
   model.items = items;
   model.scenarios = [...model.scenarios, drawdown, support];
+
+  // Display scale: the treasury model is denominated in $millions, so currency
+  // values render at that magnitude by default. The per-share and whole-dollar
+  // figures (nav_per_share, asst_price) and the btc_price driver are in whole
+  // dollars — tag them scale 1 so they don't inherit the $M default.
+  model.meta.defaultScale = 1_000_000;
+  for (const it of model.items) if (it.name === "nav_per_share" || it.name === "asst_price") it.scale = 1;
+  for (const d of model.drivers) if (d.name === "btc_price") d.scale = 1;
+
+  // Capital stack (overlay): the same reserve/cash/senior-debt/preferred/common
+  // series the NAV formula uses, now as ranked tranches. Its residual-to-common
+  // ties out to nav_to_common (see the tie-out test). Common's per-share uses the
+  // diluted common_shares series.
+  model.capitalStack = {
+    assetRefs: ["reserve", "cash", "other_holdings"],
+    tranches: [
+      { id: newId("trn"), name: "Senior debt", kind: "senior_debt", seniority: 10, notionalRef: "senior_debt" },
+      // Face-value convertibles rank junior to senior debt, senior to preferred.
+      // `convert_claim` is zero when converts are look-through equity, so this
+      // tranche only bites when `convert_as_equity = 0`.
+      {
+        id: newId("trn"),
+        name: "Convertible (face value)",
+        kind: "subordinated_debt",
+        seniority: 15,
+        notionalRef: "convert_claim",
+      },
+      {
+        id: newId("trn"),
+        name: "Preferred",
+        kind: "preferred",
+        seniority: 20,
+        notionalRef: "preferred_notional",
+        rateRef: "div_rate",
+      },
+      { id: newId("trn"), name: "Common", kind: "common", seniority: 100, sharesRef: "common_shares" },
+    ],
+  };
 
   // Curated default dashboard: headline tiles, four treasury charts, KPI table.
   attachTreasuryDashboard(model);

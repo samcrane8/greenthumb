@@ -26,6 +26,13 @@ export interface CreateModelOptions {
   type?: ModelType;
   baseCurrency?: string;
   timeline?: Partial<Timeline>;
+  /**
+   * Ticker of the company being modeled — used by ticker-aware templates (e.g.
+   * `bitcoin_treasury`) to name the price/market-cap items and label charts.
+   * Defaults to a neutral placeholder (`CO`) when omitted, so a model is never
+   * silently attributed to a specific company.
+   */
+  ticker?: string;
 }
 
 const now = () => new Date().toISOString();
@@ -167,10 +174,10 @@ export function saasModel(options: CreateModelOptions): Model {
  *
  * The common equity's NAV = reserve + cash + other holdings − preferred notional.
  * Because the preferred claim is fixed, common NAV moves faster than BTC in both
- * directions (implied leverage > 1x). Preferred issuance follows an S-curve ramp,
- * capped so notional never exceeds `amplification_cap × reserve`; its dividend is
- * a cash leak; common ATM issuance dilutes shares. mNAV (the premium/discount on
- * the levered claim) mean-reverts toward a target. Quarterly, 4-year horizon.
+ * directions (implied leverage > 1x). Preferred issuance follows an S-curve ramp
+ * (uncapped — notional keeps growing over the horizon); its dividend is a cash
+ * leak; common ATM issuance dilutes shares. mNAV (the premium/discount on the
+ * levered claim) mean-reverts toward a target. Quarterly, 4-year horizon.
  *
  * Monetary series are in $millions; share counts in millions; prices in $.
  * This is a faithful FIRST-ORDER model — discrete cycle/capitulation events from
@@ -184,6 +191,16 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
     ...options.timeline,
   });
   const periods = model.timeline.periods;
+
+  // The modeled company's identity. Defaults to a neutral placeholder so the
+  // model is never silently attributed to a specific company. The lower-cased
+  // ticker names the price/market-cap items (referenced by name elsewhere); the
+  // upper-cased ticker labels charts and stat widgets.
+  const ticker = (options.ticker ?? "CO").trim() || "CO";
+  const tickerUpper = ticker.toUpperCase();
+  const tickerLower = ticker.toLowerCase();
+  const priceName = `${tickerLower}_price`;
+  const mcapName = `${tickerLower}_mcap`;
 
   const driver = (
     name: string,
@@ -210,7 +227,6 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
     driver("issuance_ramp", "count", "scalar", [7], "S-curve ramp length (quarters)"),
     driver("div_rate", "percent", "scalar", [0.13], "Preferred dividend rate (annual)"),
     driver("atm_raise", "currency", "scalar", [390], "Common ATM issuance ($M/qtr)"),
-    driver("amplification_cap", "ratio", "scalar", [0.5], "Max preferred notional / reserve"),
     // mNAV is a first-class SERIES so the premium can follow a non-monotonic /
     // observed path (real MSTR mNAV is U-shaped: 3.4x -> 0.74x -> 2.1x -> ~0.95x).
     // The default reproduces the prior monotonic mean-reversion (1.63 -> 1.5 target,
@@ -263,13 +279,14 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
     // Reserve value in $M. Depends on btc_held (same period) -> solved iteratively.
     f("reserve", "kpi", "currency", "btc_held * btc_price / 1000000", "reserve"),
 
-    // Preferred issuance S-curve, capped by the amplification headroom.
+    // Preferred issuance follows the S-curve ramp, floored at zero and UNCAPPED —
+    // a treasury keeps raising perpetual preferred, so notional grows over time.
     f("preferred_raise_target", "other", "currency",
       "scurve(period_index, issuance_start, issuance_peak, issuance_ramp)", "financing"),
     f("prev_preferred", "other", "currency",
       "if(prior(preferred_notional) == 0, preferred_start, prior(preferred_notional))", "financing"),
     f("preferred_raise", "other", "currency",
-      "clamp(preferred_raise_target, 0, max(0, amplification_cap * reserve - prev_preferred))", "financing"),
+      "max(0, preferred_raise_target)", "financing"),
     f("preferred_notional", "kpi", "currency", "prev_preferred + preferred_raise", "financing"),
     f("preferred_dividend", "kpi", "currency", "preferred_notional * div_rate / 4", "financing"),
     f("div_coverage", "kpi", "ratio",
@@ -287,7 +304,7 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
       "if(prior(btc_held) == 0, btc_held_start, prior(btc_held)) + btc_bought", "reserve"),
 
     // Common share dilution from the ATM (raise $M / price $ = shares in millions).
-    f("new_shares", "other", "count", "atm_raise / max(asst_price, 1)", "equity"),
+    f("new_shares", "other", "count", `atm_raise / max(${priceName}, 1)`, "equity"),
     f("common_shares", "kpi", "count",
       "if(prior(common_shares) == 0, shares_start, prior(common_shares)) + new_shares", "equity"),
 
@@ -305,8 +322,8 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
     // mNAV reads the first-class premium path (default: mean-reversion; overridable
     // to an observed cyclical series). No longer a monotonic recurrence.
     f("mnav", "kpi", "ratio", "mnav_path", "equity"),
-    f("asst_price", "kpi", "currency", "max(nav_per_share, 0) * mnav", "equity"),
-    f("asst_mcap", "kpi", "currency", "asst_price * common_shares", "equity"),
+    f(priceName, "kpi", "currency", "max(nav_per_share, 0) * mnav", "equity"),
+    f(mcapName, "kpi", "currency", `${priceName} * common_shares`, "equity"),
     // Treasury "implied leverage" is the reference metric: crypto reserve per dollar
     // of common equity (handbook B1). The capital-stack panel additionally shows a
     // broader total-assets ÷ residual leverage — a different, generic measure.
@@ -360,10 +377,10 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
 
   // Display scale: the treasury model is denominated in $millions, so currency
   // values render at that magnitude by default. The per-share and whole-dollar
-  // figures (nav_per_share, asst_price) and the btc_price driver are in whole
-  // dollars — tag them scale 1 so they don't inherit the $M default.
+  // figures (nav_per_share, the ticker's price) and the btc_price driver are in
+  // whole dollars — tag them scale 1 so they don't inherit the $M default.
   model.meta.defaultScale = 1_000_000;
-  for (const it of model.items) if (it.name === "nav_per_share" || it.name === "asst_price") it.scale = 1;
+  for (const it of model.items) if (it.name === "nav_per_share" || it.name === priceName) it.scale = 1;
   for (const d of model.drivers) if (d.name === "btc_price") d.scale = 1;
 
   // Capital stack (overlay): the same reserve/cash/senior-debt/preferred/common
@@ -397,12 +414,13 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
   };
 
   // Curated default dashboard: headline tiles, four treasury charts, KPI table.
-  attachTreasuryDashboard(model);
+  // The ticker names the price item and labels the common-equity charts/tiles.
+  attachTreasuryDashboard(model, priceName, tickerUpper);
   return model;
 }
 
 /** Build the default charts + dashboard for the treasury template. */
-function attachTreasuryDashboard(model: Model): void {
+function attachTreasuryDashboard(model: Model, priceName: string, ticker: string): void {
   const chart = (
     title: string,
     kind: Chart["kind"],
@@ -412,15 +430,15 @@ function attachTreasuryDashboard(model: Model): void {
   const btcPriceChart = chart("BTC price over time — power law + halving-cycle oscillation", "line", [
     { ref: "btc_price", label: "BTC price" },
   ]);
-  const priceChart = chart("ASST common — levered residual claim on BTC", "line", [
-    { ref: "asst_price", label: "ASST price" },
+  const priceChart = chart(`${ticker} common — levered residual claim on BTC`, "line", [
+    { ref: priceName, label: `${ticker} price` },
     { ref: "nav_per_share", label: "NAV / share", style: "line" },
   ]);
-  const indexChart = chart("ASST vs BTC — leverage amplifies both directions (indexed)", "line", [
-    { ref: "asst_price", label: "ASST", index: true },
+  const indexChart = chart(`${ticker} vs BTC — leverage amplifies both directions (indexed)`, "line", [
+    { ref: priceName, label: ticker, index: true },
     { ref: "btc_price", label: "BTC", index: true },
   ]);
-  const coverageChart = chart("SATA dividend coverage — raise vs. obligation", "composed", [
+  const coverageChart = chart("Preferred dividend coverage — raise vs. obligation", "composed", [
     { ref: "preferred_dividend", label: "Preferred dividend ($M)", style: "bar" },
     { ref: "preferred_raise", label: "Preferred raise ($M)", style: "bar" },
     { ref: "div_coverage", label: "Coverage (x)", style: "line", axis: "right" },
@@ -441,7 +459,7 @@ function attachTreasuryDashboard(model: Model): void {
   model.dashboard = {
     columns: 12,
     widgets: [
-      widget("stat", "asst_price", { x: 0, y: 0, w: 3, h: 1 }),
+      widget("stat", priceName, { x: 0, y: 0, w: 3, h: 1 }),
       widget("stat", "btc_price", { x: 3, y: 0, w: 3, h: 1 }),
       widget("stat", "btc_held", { x: 6, y: 0, w: 3, h: 1 }),
       widget("stat", "implied_leverage", { x: 9, y: 0, w: 3, h: 1 }),

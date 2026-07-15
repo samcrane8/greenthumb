@@ -51,7 +51,7 @@ test("dangling chart series reference is rejected", () => {
 });
 
 test("getChartData reflects the scenario and rebases indexed series to 100", () => {
-  const m = bitcoinTreasuryModel({ name: "T" });
+  const m = bitcoinTreasuryModel({ name: "T", ticker: "ASST" }); // pin ticker so refs are `asst_price`
   const chart = m.charts!.find((c) => c.series.some((s) => s.index))!; // the indexed ASST-vs-BTC chart
   const base = getChartData(m, m.scenarios[0]!, chart.id);
   const draw = getChartData(m, m.scenarios[1]!, chart.id);

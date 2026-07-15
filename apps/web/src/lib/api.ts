@@ -181,7 +181,7 @@ export const api = {
       `/commodities/${commodityId}/${modelId}/preview${q ? `?${q}` : ''}`
     )
   },
-  createModel: (input: { name: string; type: ModelType }) =>
+  createModel: (input: { name: string; type: ModelType; ticker?: string }) =>
     req<{ model: Model; issues: ValidationIssue[] }>('/models', {
       method: 'POST',
       body: JSON.stringify(input),

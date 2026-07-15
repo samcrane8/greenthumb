@@ -7,7 +7,10 @@ import { test } from '@japa/runner'
  */
 test.group('Charts & dashboard endpoints', () => {
   async function createTreasury(client: any): Promise<string> {
-    const res = await client.post('/api/models').json({ name: 'Test Treasury', type: 'bitcoin_treasury' })
+    // Pin the ticker so the price item resolves as `asst_price` (default is `co_price`).
+    const res = await client
+      .post('/api/models')
+      .json({ name: 'Test Treasury', type: 'bitcoin_treasury', ticker: 'ASST' })
     res.assertStatus(201)
     return res.body().model.id
   }

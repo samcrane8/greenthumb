@@ -1,30 +1,4 @@
-# bitcoin-treasury-template Specification
-
-## Purpose
-
-Provide a `bitcoin_treasury` model template that scaffolds a company's common
-equity as a levered residual claim on a crypto reserve — reserve value,
-perpetual-preferred notional and dividends, cash, common shares, NAV-to-common,
-NAV per share, mNAV multiple, price, and implied leverage — with tunable
-assumptions expressed as drivers, ready-made scenarios, and a default dashboard,
-so the model is discoverable, valid, and presentable immediately after creation
-through the web picker, the API, and the MCP tools.
-
-## Requirements
-
-### Requirement: Bitcoin treasury template is registered and discoverable
-
-The system SHALL register a `bitcoin_treasury` model type in `TEMPLATES` with a
-human label and description, so it appears in the web template picker, `GET /templates`,
-and the MCP `list_templates` tool without any adapter-specific code.
-
-#### Scenario: template appears in the registry
-- **WHEN** a client lists available templates via the API or MCP
-- **THEN** the response includes an entry with type `bitcoin_treasury`, a label, and a description
-
-#### Scenario: creating from the template yields a valid model
-- **WHEN** a model is created with type `bitcoin_treasury`
-- **THEN** a `Model` is returned with `meta.type === 'bitcoin_treasury'` and it passes `validateModel` with no error-level issues
+## ADDED Requirements
 
 ### Requirement: Treasury company identity is parameterized by ticker
 
@@ -56,6 +30,8 @@ store endpoint, the web client and workspace, and the MCP scaffold tool).
 #### Scenario: Strive is expressible, not assumed
 - **WHEN** a `bitcoin_treasury` model is created with `ticker: "ASST"`
 - **THEN** the price and market-cap items are named `asst_price` and `asst_mcap`, matching the template's prior naming
+
+## MODIFIED Requirements
 
 ### Requirement: Template scaffolds the levered residual claim structure
 
@@ -111,60 +87,3 @@ it by name so the reserve build is unchanged.
 #### Scenario: BTC price follows the power law with oscillation
 - **WHEN** a fresh `bitcoin_treasury` model is created and computed
 - **THEN** the `btc_price` driver's series is the spot-anchored Bitcoin power law (period 0 at the starting spot, then arcing up through fair value and back per the halving-cycle oscillation), not a constant-growth line
-
-### Requirement: Template ships with scenarios and a default dashboard
-
-The template SHALL include a base scenario plus at least one alternate (e.g. a
-drawdown/bear scenario overriding crypto price and issuance), and SHALL emit a
-default dashboard laying out headline tiles, the projection table, and treasury
-charts so the model is presentable immediately after creation. The default dashboard
-SHALL include a chart plotting the `btc_price` series over time, so the BTC price path
-that drives the model is visible directly.
-
-#### Scenario: alternate scenario is comparable
-- **WHEN** the base and drawdown scenarios are compared for `asst_price`
-- **THEN** `compare_scenarios` returns diverging series and the drawdown scenario shows lower prices in the affected periods
-
-#### Scenario: default dashboard references valid series
-- **WHEN** the template model is created
-- **THEN** it includes a `dashboard` whose widgets reference charts and items that all resolve, and the model validates with no dangling-reference errors
-
-#### Scenario: default dashboard plots BTC price over time
-- **WHEN** a fresh `bitcoin_treasury` model is created
-- **THEN** its charts include a chart whose series references `btc_price`, and a dashboard widget renders it
-
-### Requirement: mNAV can follow a non-monotonic premium path
-
-The bitcoin treasury template SHALL model the market premium (mNAV) as a
-series-backed path rather than a strictly monotonic mean-reversion, so that a
-cyclical / U-shaped premium history (e.g. 3.4× → 0.74× → 2.1× → ~0.95×) can be
-represented and backtested. The mNAV SHALL be driven by a first-class series (a
-driver or per-scenario series) that a user or agent can set to observed or assumed
-values. The template MUST ship a default path so that, absent any override, the
-model reproduces its prior behavior.
-
-#### Scenario: an observed cyclical premium can be applied
-- **WHEN** the mNAV series is set to a non-monotonic observed path
-- **THEN** the model's mNAV follows that path period-by-period (rising and falling), and the modeled price reflects it
-
-#### Scenario: default reproduces prior behavior
-- **WHEN** a treasury model is created and the mNAV series is left at its default
-- **THEN** the mNAV path matches the template's prior mean-reversion behavior
-
-### Requirement: NAV-to-common stays economically sensible in deep drawdowns
-
-The bitcoin treasury template SHALL provide a modeling path so that NAV-to-common
-does not collapse the modeled equity value to zero merely because reserve value
-approaches outstanding debt in a drawdown. Convertible instruments SHALL be
-representable as **look-through equity** (excluded from senior claims, their
-dilution carried in the share count) via an explicit, scenario-able assumption, so
-that in a deep drawdown the common retains the option-like value it has in
-reality rather than pricing to zero.
-
-#### Scenario: converts treated as look-through equity keep NAV positive
-- **WHEN** BTC reserve value falls to approximately the level of outstanding debt in a drawdown, with convertibles treated as look-through equity
-- **THEN** NAV-to-common remains positive and the modeled share price does not collapse to zero
-
-#### Scenario: the treatment is an explicit assumption
-- **WHEN** a reader inspects the treasury model
-- **THEN** whether convertibles are treated as look-through equity or face-value debt is an explicit, adjustable assumption, not a hidden default

@@ -48,11 +48,19 @@ test.group('Market-data endpoints', (group) => {
     const res = await client.get('/api/market/providers')
     res.assertStatus(200)
     const ids = res.body().map((p: any) => p.id)
-    assert.include(ids, 'stooq')
-    assert.include(ids, STUB_ID)
-    const stooq = res.body().find((p: any) => p.id === 'stooq')
-    assert.isFalse(stooq.requiresKey)
-    assert.isTrue(stooq.configured, 'keyless provider is always configured')
+    // Yahoo is the keyless default; Stooq was removed (broken upstream).
+    assert.includeMembers(ids, ['yahoo', 'alphavantage', 'demo', STUB_ID])
+    assert.notInclude(ids, 'stooq')
+    const yahoo = res.body().find((p: any) => p.id === 'yahoo')
+    assert.isFalse(yahoo.requiresKey)
+    assert.isTrue(yahoo.configured, 'keyless provider is always configured')
+  })
+
+  test('the keyless default provider is yahoo', async ({ assert }) => {
+    // With no ?provider=, the controller resolves DEFAULT_PROVIDER (yahoo). The
+    // stub is registered under its own id; assert the default id explicitly.
+    const { DEFAULT_PROVIDER } = await import('#services/market_data/index')
+    assert.equal(DEFAULT_PROVIDER, 'yahoo')
   })
 
   test('fetches a quote from the stub provider', async ({ client, assert }) => {

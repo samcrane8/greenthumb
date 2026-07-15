@@ -28,7 +28,7 @@ const scnByName = (m: Model, n: string) => m.scenarios.find((s) => s.name === n)
 // --- Timeline ---------------------------------------------------------------
 
 test("setPeriods shrinks the horizon and computes over fewer periods", () => {
-  const m = bitcoinTreasuryModel({ name: "T" }); // 16 quarterly
+  const m = bitcoinTreasuryModel({ name: "T", ticker: "ASST" }); // 16 quarterly; pin ticker for asst_price
   assert.equal(m.timeline.periods, 16);
   const res = setPeriods(m, 8);
   assert.ok(res.ok, JSON.stringify(res.issues));
@@ -236,11 +236,14 @@ test("setAssumption on a bound driver implicitly unbinds it", () => {
 
 test("Power-law support scenario prices lower than base", () => {
   const m = bitcoinTreasuryModel({ name: "T" });
-  const idA = idOf(m, "reserve");
+  // Assert on nav_per_share (the price path), not reserve: with uncapped preferred
+  // issuance a lower-price scenario buys more BTC per dollar, so its reserve
+  // (held × price) can actually peak higher — reserve no longer tracks "prices".
+  const idA = idOf(m, "nav_per_share");
   const base = computeModel(m, m.scenarios[0]!).series[idA]!;
   const support = computeModel(m, scnByNameModel(m, "Power-law support")).series[idA]!;
   // compare peaks — robust to oscillation phase differences between scenarios
-  assert.ok(Math.max(...support) < Math.max(...base), "support reserve peaks below base");
+  assert.ok(Math.max(...support) < Math.max(...base), "support NAV/share peaks below base");
 });
 
 // --- Scenario commodity assumptions -----------------------------------------
@@ -257,7 +260,7 @@ test("treasury alternate scenarios carry commodity bindings, not baked haircuts"
 });
 
 test("setScenarioCommodityPrice on an alternate scenario diverges from base only", () => {
-  const m = bitcoinTreasuryModel({ name: "T" });
+  const m = bitcoinTreasuryModel({ name: "T", ticker: "ASST" });
   const btcId = drvOf(m, "btc_price");
   const asst = idOf(m, "asst_price");
   const baseBefore = computeModel(m, m.scenarios[0]!).series[asst]!.slice();

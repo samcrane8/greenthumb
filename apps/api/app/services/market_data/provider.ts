@@ -57,7 +57,7 @@ export function listProviders(): Array<{ id: string; label: string; requiresKey:
 }
 
 /** The default provider id (the keyless one, so the feature works zero-config). */
-export const DEFAULT_PROVIDER = 'stooq'
+export const DEFAULT_PROVIDER = 'yahoo'
 
 // ---------------------------------------------------------------------------
 // A tiny in-memory TTL cache so repeated imports don't re-hit the network.

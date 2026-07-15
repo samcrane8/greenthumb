@@ -7,7 +7,8 @@ import { analyzeCapitalStack } from "./capitalstack.js";
 import { bitcoinTreasuryModel } from "./templates.js";
 import type { Model } from "./types.js";
 
-const treasury = (): Model => bitcoinTreasuryModel({ name: "T", timeline: { granularity: "quarterly", periods: 16 } });
+const treasury = (): Model =>
+  bitcoinTreasuryModel({ name: "T", ticker: "ASST", timeline: { granularity: "quarterly", periods: 16 } });
 const idOf = (m: Model, n: string) => m.items.find((i) => i.name === n)!.id;
 const drvOf = (m: Model, n: string) => m.drivers.find((d) => d.name === n)!.id;
 const base = (m: Model) => computeModel(m, m.scenarios[0]!).series;

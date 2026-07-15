@@ -100,6 +100,7 @@ export default class ModelsController {
       type?: ModelType
       baseCurrency?: string
       timeline?: Model['timeline']
+      ticker?: string
     }
     if (!body.name) return response.badRequest({ error: 'name is required' })
 
@@ -108,6 +109,7 @@ export default class ModelsController {
       type: body.type,
       baseCurrency: body.baseCurrency,
       timeline: body.timeline,
+      ticker: body.ticker,
     })
     const { issues, saved } = await modelStore().save(model)
     if (!saved) return response.unprocessableEntity({ error: 'Model failed validation', issues })

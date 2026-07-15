@@ -8,7 +8,9 @@ import { validateModel, isValid } from "./validation.js";
 import type { Model } from "./types.js";
 
 function treasury(): Model {
-  return bitcoinTreasuryModel({ name: "Test Treasury" });
+  // Pin the ticker so the price item resolves as `asst_price` (the default is now
+  // the neutral `CO` → `co_price`). Ticker-genericity is covered by its own tests.
+  return bitcoinTreasuryModel({ name: "Test Treasury", ticker: "ASST" });
 }
 
 const idOf = (m: Model, n: string) => m.items.find((i) => i.name === n)!.id;
@@ -89,4 +91,62 @@ test("default dashboard references only resolvable series and charts", () => {
     if (w.kind === "chart") assert.ok(chartIds.has(w.refId!), `widget -> chart ${w.refId}`);
     if (w.kind === "stat") assert.ok(names.has(w.refId!), `stat -> item ${w.refId}`);
   }
+});
+
+/** All chart titles + series labels joined, for scanning for leaked tickers. */
+const labelBlob = (m: Model) =>
+  m.charts!.flatMap((c) => [c.title, ...c.series.map((s) => s.label ?? "")]).join(" | ");
+const exprOf = (m: Model, n: string) => {
+  const def = m.items.find((i) => i.name === n)!.definition;
+  return def.kind === "formula" ? def.expression : "";
+};
+
+test("a non-default ticker names the price/mcap items and labels; no ASST/SATA left", () => {
+  const m = bitcoinTreasuryModel({ name: "MicroStrategy", ticker: "MSTR" });
+  const names = new Set(m.items.map((i) => i.name));
+  assert.ok(names.has("mstr_price"), "price item is mstr_price");
+  assert.ok(names.has("mstr_mcap"), "mcap item is mstr_mcap");
+  assert.ok(!names.has("asst_price") && !names.has("co_price"), "no other-ticker price item");
+  // the ATM dilution formula divides by the ticker's price
+  assert.match(exprOf(m, "new_shares"), /mstr_price/);
+  assert.match(exprOf(m, "mstr_mcap"), /mstr_price/);
+  // charts + the headline stat widget reference mstr_price
+  const refs = m.charts!.flatMap((c) => c.series.map((s) => s.ref));
+  assert.ok(refs.includes("mstr_price"), "a chart series references mstr_price");
+  assert.ok(
+    m.dashboard!.widgets.some((w) => w.kind === "stat" && w.refId === "mstr_price"),
+    "headline stat -> mstr_price",
+  );
+  // labels reflect the ticker, and no company literals leak through
+  const blob = labelBlob(m);
+  assert.match(blob, /MSTR/);
+  assert.ok(!/ASST|SATA/.test(blob), `no ASST/SATA in labels: ${blob}`);
+  assert.ok(isValid(validateModel(m)), "model validates");
+});
+
+test("default ticker is the neutral CO placeholder; no ASST/SATA labels", () => {
+  const m = bitcoinTreasuryModel({ name: "Some Treasury" });
+  const names = new Set(m.items.map((i) => i.name));
+  assert.ok(names.has("co_price") && names.has("co_mcap"), "default items are co_price/co_mcap");
+  assert.ok(!/ASST|SATA/.test(labelBlob(m)), "no ASST/SATA in default labels");
+});
+
+test("preferred notional grows uncapped over the horizon", () => {
+  const m = treasury();
+  assert.ok(!m.drivers.some((d) => d.name === "amplification_cap"), "amplification_cap driver removed");
+  const { series } = computeModel(m, m.scenarios[0]!);
+  const pref = series[idOf(m, "preferred_notional")]!;
+  const reserve = series[idOf(m, "reserve")]!;
+  // non-decreasing period over period
+  for (let i = 1; i < pref.length; i++) {
+    assert.ok(pref[i]! >= pref[i - 1]! - 1e-6, `non-decreasing at ${i}: ${pref[i]} >= ${pref[i - 1]}`);
+  }
+  // grows materially by the horizon end
+  assert.ok(pref[pref.length - 1]! > pref[0]!, "notional grows over the horizon");
+  // and breaks through the old amplification_cap (0.5 × reserve) ceiling somewhere —
+  // proof the clamp is gone (under the old logic notional[i] <= 0.5 × reserve[i]).
+  assert.ok(
+    pref.some((v, i) => v > 0.5 * reserve[i]! + 1e-6),
+    "preferred notional exceeds the old 0.5×reserve cap in some period",
+  );
 });

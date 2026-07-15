@@ -217,16 +217,20 @@ server.registerTool(
   {
     title: 'Create model',
     description:
-      'Scaffold a new model from a template (blank, saas, bitcoin_treasury, …). Optionally choose the timeline granularity, period count, and START DATE up front — set `start` to the real first-period date (e.g. "2020-07-01") so period labels reflect actual history rather than the default.',
+      'Scaffold a new model from a template (blank, saas, bitcoin_treasury, …). Optionally choose the timeline granularity, period count, and START DATE up front — set `start` to the real first-period date (e.g. "2020-07-01") so period labels reflect actual history rather than the default. For ticker-aware templates (e.g. bitcoin_treasury) set `ticker` to the company being modeled (e.g. "MSTR") — it names the price/market-cap items and labels the charts; defaults to a neutral "CO".',
     inputSchema: {
       name: z.string(),
       type: z.string().default('blank'),
       granularity: z.enum(['monthly', 'quarterly', 'annual']).optional(),
       periods: z.number().int().positive().optional(),
       start: z.string().optional().describe('ISO date of the first period, e.g. "2020-07-01".'),
+      ticker: z
+        .string()
+        .optional()
+        .describe('Company ticker for ticker-aware templates (e.g. "MSTR"). Defaults to "CO".'),
     },
   },
-  async ({ name, type, granularity, periods, start }) => {
+  async ({ name, type, granularity, periods, start, ticker }) => {
     try {
       const timeline =
         granularity || periods || start
@@ -236,7 +240,7 @@ server.registerTool(
               ...(start ? { start } : {}),
             }
           : undefined
-      const data = await call('/models', { method: 'POST', body: { name, type, timeline } })
+      const data = await call('/models', { method: 'POST', body: { name, type, timeline, ticker } })
       return result(`Created model "${name}".`, data)
     } catch (err) {
       return fail(err)

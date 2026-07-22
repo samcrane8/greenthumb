@@ -45,7 +45,12 @@ export default class ModelsController {
   /** GET /api/templates — available starter templates. */
   async templates({ response }: HttpContext) {
     return response.ok(
-      TEMPLATES.map((t) => ({ type: t.type, label: t.label, description: t.description }))
+      TEMPLATES.map((t) => ({
+        type: t.type,
+        label: t.label,
+        description: t.description,
+        requiresTicker: t.requiresTicker ?? false,
+      }))
     )
   }
 
@@ -104,13 +109,20 @@ export default class ModelsController {
     }
     if (!body.name) return response.badRequest({ error: 'name is required' })
 
-    const model = createModel({
-      name: body.name,
-      type: body.type,
-      baseCurrency: body.baseCurrency,
-      timeline: body.timeline,
-      ticker: body.ticker,
-    })
+    let model: Model
+    try {
+      model = createModel({
+        name: body.name,
+        type: body.type,
+        baseCurrency: body.baseCurrency,
+        timeline: body.timeline,
+        ticker: body.ticker,
+      })
+    } catch (err) {
+      // Creation-parameter errors (e.g. a ticker-required template with no ticker)
+      // surface as a clear 400, not the model-validation path.
+      return response.badRequest({ error: (err as Error).message })
+    }
     const { issues, saved } = await modelStore().save(model)
     if (!saved) return response.unprocessableEntity({ error: 'Model failed validation', issues })
     return response.created({ model, issues })

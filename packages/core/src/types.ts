@@ -171,6 +171,13 @@ export interface ModelMeta {
    * `scale` (e.g. 1_000_000 for a model kept in $millions). Presentation only.
    */
   defaultScale?: number;
+  /**
+   * Ticker of the company modeled by a ticker-aware template (e.g. the
+   * `bitcoin_treasury` template stores the uppercased ticker here). Presentation
+   * only — lets adapters display the company identity (e.g. uppercase the item
+   * name prefix in tiles/rows) without re-deriving it from item names.
+   */
+  ticker?: string;
 }
 
 // ---------------------------------------------------------------------------

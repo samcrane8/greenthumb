@@ -9,7 +9,7 @@
 
 import { findPriceModel } from "./commodities.js";
 import { computeModel } from "./engine.js";
-import { FormulaError, parse, referencedNames } from "./formula.js";
+import { FormulaError, KNOWN_FUNCTIONS, parse, referencedFunctions, referencedNames } from "./formula.js";
 import type { Model, ValidationIssue } from "./types.js";
 
 const BALANCE_TOLERANCE = 1e-3;
@@ -48,6 +48,18 @@ export function validateModel(model: Model): ValidationIssue[] {
             severity: "error",
             code: "DANGLING_REF",
             message: `Item "${item.name}" references "${ref}", which is not a known item or driver.`,
+            targetId: item.id,
+          });
+        }
+      }
+      // Resolve function calls against the evaluator's registry, so a model
+      // referencing a non-existent function fails validation (not at compute).
+      for (const fn of referencedFunctions(ast)) {
+        if (!KNOWN_FUNCTIONS.has(fn)) {
+          issues.push({
+            severity: "error",
+            code: "UNKNOWN_FUNCTION",
+            message: `Item "${item.name}" calls unknown function "${fn}()".`,
             targetId: item.id,
           });
         }

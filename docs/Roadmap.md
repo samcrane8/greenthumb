@@ -1,12 +1,18 @@
 # greenthumb — Roadmap
 
-**Status:** Draft v0.2 · July 10, 2026
+**Status:** Draft v0.3 · July 22, 2026
 **Owner:** Sam Crane
 
 This roadmap turns the [PRD](Financial-Modeling-Service-PRD.md) into an ordered
 plan, anchored to what the scaffold already provides. It is organized into
 phases (**Foundation → MVP → V1 → V2 → Productization**) plus cross-cutting
 tracks (testing, DX, security) that run throughout.
+
+**v0.3 adds §7 — the analysis-engine track**, derived from the 2026-07-22
+[analysis-engine assessment](assessments/2026-07-22-analysis-engine-assessment.md)
+(running the Bitcoin-vs-liquidity study through greenthumb end to end). It reframes
+a strategic gap: greenthumb is a strong *forecasting/valuation* engine but not yet
+an *empirical analysis* engine. §7 is the plan to close that.
 
 Legend: ✅ done · 🟡 partial · ⬜ not started.
 
@@ -32,8 +38,9 @@ The monorepo skeleton is built and verified end-to-end:
   timeline/rename/notes/delete edit routes with a `?summary=true` lean-response
   mode, plus **analysis routes** (score / sweep / tornado / backtest /
   walkforward / calibrate / actuals + CSV import / forecast-actual join), plus
-  **market-data providers** (pluggable registry — keyless Stooq default, BYO-key
-  Alpha Vantage, offline demo — that fetch quotes/history and *materialize* them
+  **market-data providers** (pluggable registry — keyless **Yahoo** default
+  (real quotes + daily history, no key), BYO-key Alpha Vantage, offline demo —
+  that fetch quotes/history and *materialize* them
   into a model's actuals or seed a driver, with provenance; keys stay in local
   config, never in model JSON).
 - ✅ **React + shadcn UI** (`apps/web`): model list, scenario switcher, KPI
@@ -65,15 +72,21 @@ MCP tools. Imported history feeds the backtesting/calibration loop directly.
 **v12** (prebuilt binaries — no local source compile needed).
 
 **Bitcoin treasury template — fidelity note.** The `bitcoin_treasury` template
-models an MSTR/ASST-style company as a *levered residual claim* on a crypto
-reserve funded by perpetual preferred (reserve, preferred notional + dividend
-coverage, cash buffer, common ATM dilution, a native **debt line** — straight +
-convertible — subtracting from NAV, NAV-to-common, implied leverage). It is a
-faithful **first-order** model: the amplification cap and issuance S-curve are
-declarative formulas, but discrete cycle/capitulation events from the reference
+models a treasury company (MSTR/Strive-style) as a *levered residual claim* on a
+crypto reserve funded by perpetual preferred (reserve, preferred notional +
+dividend coverage, cash buffer, common ATM dilution, a native **debt line** —
+straight + convertible — subtracting from NAV, NAV-to-common, implied leverage).
+It is generic by company: creation now **requires a `ticker`** (the modeled
+company, e.g. `MSTR`) which names the price/market-cap items (`${ticker}_price`),
+labels the charts, and is stored on `meta.ticker` and shown uppercased in the UI —
+no silent placeholder. It is a faithful **first-order** model: preferred issuance
+follows an **uncapped** S-curve ramp (notional grows over the horizon; the old
+amplification cap was removed), and it tracks **sats-per-share** (BTC-per-share
+accretion) as a default KPI; discrete cycle/capitulation events from the reference
 are expressed via **scenario overrides** (see the Drawdown scenario), not new
-engine control flow. It ships with a curated default dashboard (headline tiles,
-four treasury charts, KPI table). **Premium & solvency fidelity:** mNAV is a
+engine control flow. It ships with a curated default dashboard (headline tiles
+incl. sats/share, five+ treasury charts incl. a sats-per-share accretion chart, KPI
+table). **Premium & solvency fidelity:** mNAV is a
 first-class **series** (`mnav_path`) — settable to an observed / non-monotonic
 cycle (real MSTR ran 3.4× → 0.74× → 2.1× → ~0.95×), defaulting to the prior
 mean-reversion; and convertibles can be treated as **look-through equity**
@@ -140,7 +153,11 @@ companies can be modeled the same way.
 
 **What "done" does not yet mean:** the engine has one real template, the UI is
 read-mostly, there is no versioning/diff surface, no Excel export, and packaging
-is unproven. Those are the next phases.
+is unproven. And — per the 2026-07-22 assessment — greenthumb is a forecasting/
+valuation engine, **not yet an empirical analysis engine**: the formula language
+has no statistical/time-series functions, there is no macro data provider, and no
+document-export call on the tool surface. Those are the next phases (§1–§4) plus
+the new **analysis-engine track (§7)**.
 
 ---
 
@@ -282,6 +299,33 @@ Currently only file snapshots exist.
 
 The dual desktop + web target has real work beyond the scaffold.
 
+### 4.0 Business model, licensing & monetization ⬜
+The revenue shape and the free/paid boundary — full detail in the
+[monetization strategy](Monetization-Strategy.md). Summary: **AGPLv3 core +
+commercial dual license, monetized primarily through paid cloud services**, with
+premium data as the second engine. The desktop client stays fully open and
+uncrippled; the money is in what an AGPL client can't give away — hosted
+services, a commercial license, and data.
+- ⬜ **License + CLA first (do now, cheap now / expensive to retrofit):** AGPLv3
+  on the repo; require a contributor **CLA/copyright assignment** before the
+  first external PR, or dual licensing becomes impossible later.
+- ⬜ **Boundary principle:** free = everything that runs locally on one machine
+  (engine, formulas, scenarios, charts, dashboards, backtests, capital stack,
+  local data pulls, file export); paid = anything needing a server, a second
+  person, or our data/compute (sync, publish/share, collaboration, hosted
+  compute, premium data, enterprise governance).
+- ⬜ **Ship Publish as the first paid wedge** — share a live analysis via URL;
+  rides the analysis/export work and self-markets every time an analysis is
+  shared. Then **Sync** (prosumer upsell) and a metered **data add-on**.
+- ⬜ **Tiering:** Free (AGPL, local) → Pro (~$10–18/mo: sync, publish, hosted
+  compute) → Team (~$25–45/seat: multiplayer, shared libraries, admin) →
+  Enterprise (custom + commercial license, SSO/audit/self-host).
+- ⬜ Keep cloud backend + commercial-only features as **separate proprietary
+  works over an API** so AGPL never reaches the server.
+
+The 4.1–4.3 items below are the *delivery* of this model; the streams they enable
+(subscriptions, data, commercial license) are ranked in the strategy doc.
+
 ### 4.1 Desktop packaging 🟡
 - 🟡 `electron-builder.yml` + main-process fork of the API are wired.
 - ⬜ Rebuild `better-sqlite3` against Electron's ABI (`@electron/rebuild` /
@@ -347,6 +391,181 @@ These change priority once answered — best grounded in the **Finance folder**:
 4. **AI autonomy:** how much can Claude change unattended vs. propose-and-approve?
    → shapes §2.2 AI change review.
 5. **Naming/sign conventions** → bake into §1.1 template defaults.
+6. **Python cells — commit or not, and how?** (§7.5, pre-decision) The scoping doc
+   is explicit that these are unresolved and gate a P0 spike: input/output discovery
+   (static inference vs. explicit declaration vs. both); bundled managed CPython vs.
+   bring-your-own runtime; purity enforcement (hard network-off sandbox vs.
+   lint-and-warn); how opinionated auto-resampling is on granularity mismatch;
+   Python-only vs. also SQL cells feeding Python; and cells model-level-only vs. also
+   standalone/scratch. Answering these decides whether §7.5 starts after §7.1–§7.3.
+
+---
+
+## 7. Analysis-engine track — from pro-forma to empirical analysis
+
+Derived from the [2026-07-22 assessment](assessments/2026-07-22-analysis-engine-assessment.md),
+which ran a real "how much does Bitcoin follow liquidity?" study through greenthumb.
+Verdict: the engine *hosts* such an analysis (series drivers, dual-axis + indexed
+charts, a 12-column dashboard, `note` text widgets) but can't yet *compute* one —
+the statistical work happened in Python, the liquidity data came from FRED (outside
+the tool), and there's no export call. Three gaps, in priority order. **These
+augment V1/V2; they don't replace the forecasting roadmap.** Each 7.x is sized to
+become its own `/opsx:propose` change, engine-first per the architecture rule.
+
+**Two complementary compute layers (per the [Python-cells scoping doc](assessments/2026-07-22-python-cells-scoping.md)).**
+The analysis-engine work deliberately ships *both*: a **built-in formula stats
+library** (§7.1) — the approachable, scenario-native spine for the spreadsheet-native
+analyst who never writes code — and **reactive Python cells** (§7.5) — the unbounded
+power layer for the pandas-native quant. They are not either/or: the formula stats
+serve non-coders and always compute inside scenarios/backtests; Python cells handle
+anything the function set can't express. The failure mode to avoid is becoming "a
+slightly-worse Jupyter for quants while intimidating the analysts who liked that
+greenthumb felt like a spreadsheet" — so the declarative formula model stays the
+spine and code is progressive disclosure.
+
+### 7.0 Prerequisite — make `validate` honest about formulas ⬜ (cheap; do first)
+`validate_model` today passes a model containing functions that don't exist
+("0 issues — arithmetically sound"), which then **500s at compute**
+(`get_chart_data → "Unknown function 'correl()'"`). Validation checks structure
+(balance, dangling refs, capital stack) but never resolves function names against
+the evaluator's registry.
+- ⬜ In `validation.ts`, compile/resolve every formula's function calls against the
+  `formula.ts` function set; emit an `UNKNOWN_FUNCTION` error (and flag obvious
+  NaN-producing ops). "Valid" must mean "will compute," not just "arithmetically
+  coherent."
+- **Acceptance:** a model with `correl()` fails `validate_model` with a clear issue,
+  not a compute-time 500.
+
+### 7.1 Statistics / time-series function library ⬜ (highest leverage)
+The change that unlocks "handle queries like this." Today's callable set is
+pro-forma-oriented (`prior`, `cumulative`, `rolling`, `growth`, `if`, arithmetic,
+`exp/ln/sqrt/pow/clamp/scurve/logistic`) — no statistics. Build on the existing
+`rolling` window and `growth`.
+- ⬜ Reducers: `logret`/`pct_change`, `stdev`/`var`, `cov`, `correl`, `beta`,
+  `drawdown`, `zscore`.
+- ⬜ Windowed variants (compose with `rolling(window, …)`): rolling correlation,
+  rolling beta, rolling vol.
+- ⬜ A small regression primitive: `slope`, `intercept`, `r2`, with a `lag`
+  argument for lead/lag.
+- ⬜ Annualization keyed off timeline granularity (vol × √periods-per-year).
+- ⬜ Golden tests per function vs. known series; property tests for windows.
+- **Acceptance:** every derived series the Bitcoin study computed in Python (weekly
+  log returns, 26-week rolling correlation, rolling beta to an index and to gold,
+  annualized vol, drawdown-from-peak, lead/lag regression + R²) is expressible as a
+  formula item and computes. Pairs naturally with 7.0.
+
+### 7.2 Macro / econ data provider ⬜
+Without this, any liquidity/rates/macro analysis leaves the tool at step one.
+- ⬜ Add a **FRED** provider next to Yahoo (M2, central-bank balance sheets, policy
+  rates, FX) as first-class series; BYO-key in local config (same secret-handling
+  contract as Alpha Vantage — keys never in model JSON).
+- ⬜ Align fetched macro series to a model timeline (reuse `alignHistoryToTimeline`),
+  materialize as actuals or a seeded driver (same as price data).
+- **Acceptance:** global M2 and a policy-rate series import in-tool and chart against
+  BTC (dual-axis, indexed) with no out-of-band steps.
+
+### 7.3 Document export path ⬜
+The shareable deliverable the workflow asks for.
+- ⬜ An `export` MCP tool + API route that renders a scenario's dashboard — charts,
+  stat tiles, and `note` prose — to **HTML and PDF**, returning a file.
+- ⬜ Notes carry **markdown** so narrative survives with structure.
+- ⬜ If the desktop already renders a dashboard, factor the renderer so the export
+  and the desktop share one path (apply the `dataviz` conventions).
+- **Acceptance:** an agent produces a shareable HTML/PDF of a dashboard *including
+  the narrative* through the automatable (MCP) surface.
+
+### 7.4 Secondary — data & viz ergonomics ⬜
+- ⬜ **Server-side resampling + compact/CSV return** on `get_price_history`
+  (weekly/monthly aggregation, columnar mode) so multi-year pulls don't overflow the
+  tool-result cap (~344k chars for one BTC pull today) or need out-of-band parsing.
+- ⬜ **OHLCV, not close-only**, for range/volume-based work.
+- ⬜ **Symbol normalization / documented symbol classes** — `^`-prefixed indices
+  (`^IXIC`) either resolve or fail with a clear "use an ETF proxy" hint.
+- ⬜ **Ad-hoc external-data series** decoupled from a pro-forma timeline, plus
+  **study chart types**: scatter-with-regression, rolling-correlation, lead/lag
+  heatmap.
+- ⬜ **Rich-text / markdown note widgets** (feeds 7.3 export).
+
+### 7.5 Reactive Python cells — the power layer ⬜ (scoped, pre-decision)
+Full scoping in the [Python-cells scoping doc](assessments/2026-07-22-python-cells-scoping.md).
+The unbounded complement to §7.1: executable Python for the pandas-native quant, for
+anything the formula function set can't express (custom transforms, statsmodels/
+sklearn regressions, bespoke signals). **This is the largest single bet in §7** —
+sequence it *after* §7.1–§7.3 give it a surface to plug into, and treat it as
+multi-phase, not one change.
+
+- **The one decision everything hangs on: a cell is a graph node, not a REPL.** Each
+  cell declares its **input set** (model series/drivers/tables it reads) and names its
+  **output set** (series/scalars/tables it writes back). The engine builds one
+  dependency DAG across drivers, formula items, **and** cells; a cell's outputs are
+  indistinguishable downstream from a formula item's — so charts, stats, scenarios,
+  backtests, and export come **for free**. Refuse to ship free-floating REPL cells
+  whose I/O the engine can't see.
+- **Reactive dataflow, not notebook order.** Editing a cell (or an upstream input)
+  re-runs only genuinely-downstream nodes, in dependency order — no hidden kernel
+  state, no "did I run cell 3 after editing cell 1?" (Marimo/Observable model). This
+  is what makes "change the rolling window 26→13, watch the chart redraw" both
+  possible *and correct*.
+- **Local kernel** (greenthumb is a desktop app): full scientific stack, data stays
+  local, no untrusted code in our cloud; bundle a **pinned managed CPython + curated
+  wheels** for zero-setup. Pyodide/WASM as a fallback for users without a kernel; a
+  hosted kernel is deprioritized (breaks "data stays local").
+- **Purity is the crux risk.** Scenario/backtest correctness requires cells be pure
+  functions of their declared inputs. Mitigations: purity lint, network-off sandbox
+  by default, seeded RNG, an **actuals-cursor lint** (flag full-sample stats in a
+  backtest context = lookahead), and per-cell CPU/mem/time limits + cancellation.
+- **Reproducibility: publish = freeze.** Snapshot each cell's resolved inputs,
+  computed outputs, code, and env hash at publish/export, so a defended claim ("BTC up
+  47% as of July 2026") doesn't silently drift. Pin the env per model; warn on drift.
+
+  Phased delivery (maps onto our phases; each phase is its own OpenSpec change):
+  - ⬜ **P0 spike** — local kernel + one cell reading a model series and writing one
+    output series that renders in an existing chart. Proves the round-trip + marshalling
+    contract. No reactivity.
+  - ⬜ **P1 MVP** — static input/output inference (reads of `gt[...]`, writes to
+    `gt.out[...]`); single-cell reactivity (edit→recompute→chart updates); series +
+    scalar outputs; error/traceback surfacing; bundled pinned runtime.
+  - ⬜ **P2 graph + scenarios** — multi-cell reactive DAG; cell outputs participate in
+    scenario recompute; DataFrame/table outputs; backtest/actuals-cursor awareness +
+    lookahead lint.
+  - ⬜ **P3 analysis & reproducibility** — snapshot-at-publish; env pinning + drift
+    warnings; a "code" dashboard widget; the empirical chart types from §7.4
+    (scatter+regression, rolling-corr, lead/lag heatmap).
+  - ⬜ **P4 polish** — package-management UX; templates/snippets (a "market study"
+    starter that reproduces the Bitcoin-liquidity analysis); sharing/versioning.
+
+- **Open decisions to resolve before committing** (from the scoping doc — it is
+  explicitly *pre-decision*): input/output discovery (inference vs. declaration vs.
+  both — leaning both, inference-first); bundled vs. bring-your-own runtime; purity
+  enforcement (hard sandbox vs. lint-and-warn); how opinionated auto-resampling should
+  be on granularity mismatch; whether to allow SQL cells feeding Python; and whether
+  cells are model-level only or also standalone/scratch. These fold into §6 (open
+  decisions).
+- **The moat:** none of Marimo/Hex/Count/Observable fuse a reactive notebook with a
+  *scenario + forecast + capital-stack* engine. That fusion is the differentiator —
+  and the reason the graph-node discipline (not an embedded REPL) is non-negotiable.
+
+### Preserve (don't regress) — the assessment's explicit keep-list
+The keyless, device-side data bridge (in a firewalled sandbox greenthumb *was* the
+only way to reach Yahoo); the scenario/override system; the bitcoin power-law +
+halving price model (directly on-point for monetization-trend work); the
+capital-stack analysis; and the backtest/validate/score discipline's refusal to
+conflate "the model balances" with "the model is correct."
+
+### Sequencing
+**7.0 → 7.1 → 7.2 → 7.3**, with 7.4 ergonomics riding alongside. 7.0 is a fast
+prerequisite that pairs with 7.1; 7.1 unlocks the class of query; 7.2 unblocks
+macro sourcing; 7.3 ships the deliverable. The tell from the assessment: the moment
+the real analytical work happens *outside* greenthumb, you've found the product gap
+— 7.1 + 7.2 + 7.3 collapse the current 5-step "compute-in-Python, present-in-tool"
+workaround into a single in-tool workflow.
+
+**§7.5 (Python cells) comes after this foundation**, not before it. It's the largest
+bet in the track and it *plugs into* the surface 7.1–7.3 build (its outputs are
+"just" more model series that flow into the same charts, scenarios, backtests, and
+export). Shipping 7.1 first also de-risks 7.5: the formula stats prove demand and
+serve the non-coder audience regardless of whether/when Python cells land. Start 7.5
+at its **P0 spike** only once the open decisions above are resolved.
 
 ---
 
@@ -362,3 +581,20 @@ These change priority once answered — best grounded in the **Finance folder**:
 Everything above (1–4) is the shortest path to the MVP exit criteria; item 5
 opens V1. The backtesting/sensitivity/calibration **engine + API + MCP** already
 landed (§2.1a) — item 5 is the web surface over it, not new engine work.
+
+**Analysis-engine track (§7) — the new near-term thread.** Given the 2026-07-22
+assessment, the highest-leverage engine work is now §7.0 → §7.1: make `validate`
+honest, then add the statistics/time-series function library. It's engine-first
+(pure `packages/core`), independent of the MVP UI work above, and it's the single
+change that turns "handle empirical queries like Bitcoin-vs-liquidity" from
+impossible into a formula item. Sequence for implementation:
+
+1. **§7.0** — `validate` resolves function names (fast prerequisite; also a
+   correctness fix on its own).
+2. **§7.1** — statistics/time-series functions (`logret`, `stdev`, `correl`,
+   `beta`, `drawdown`, rolling variants, a regression primitive).
+3. **§7.2** — FRED macro provider.
+4. **§7.3** — HTML/PDF dashboard export.
+
+Each is a self-contained `/opsx:propose` change. Start with §7.0+§7.1 as one or
+two changes (they're tightly coupled).

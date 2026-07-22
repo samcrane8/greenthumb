@@ -1,6 +1,22 @@
 /** Presentation helpers for the model grid and stat tiles. */
 
 /**
+ * Human label for a line-item / row name. When the model carries a `ticker`
+ * (ticker-aware templates like `bitcoin_treasury`) and the name is prefixed with
+ * that ticker (e.g. `mstr_price`), render the ticker uppercased — "MSTR price" —
+ * so the company identity reads correctly. Otherwise turn underscores into spaces.
+ */
+export function itemLabel(name: string, ticker?: string): string {
+  if (ticker) {
+    const prefix = `${ticker.toLowerCase()}_`
+    if (name.toLowerCase().startsWith(prefix)) {
+      return `${ticker.toUpperCase()} ${name.slice(prefix.length).replace(/_/g, ' ')}`
+    }
+  }
+  return name.replace(/_/g, ' ')
+}
+
+/**
  * Format a value for display. `scale` is a display magnitude (e.g. 1_000_000 when
  * the value is stored in $millions) — presentation only, applied to currency so a
  * $M-denominated figure renders at its true size. Percent values are stored as

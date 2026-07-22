@@ -20,8 +20,30 @@ test("bitcoin_treasury is registered and discoverable", () => {
   const info = TEMPLATES.find((t) => t.type === "bitcoin_treasury");
   assert.ok(info, "template registered");
   assert.ok(info!.label && info!.description);
-  const m = createModel({ name: "via factory", type: "bitcoin_treasury" });
+  assert.equal(info!.requiresTicker, true, "treasury requires a ticker");
+  const m = createModel({ name: "via factory", type: "bitcoin_treasury", ticker: "ASST" });
   assert.equal(m.meta.type, "bitcoin_treasury");
+});
+
+test("createModel requires a ticker for the treasury template", () => {
+  assert.throws(
+    () => createModel({ name: "no ticker", type: "bitcoin_treasury" }),
+    /ticker/,
+    "creating a treasury without a ticker is rejected",
+  );
+  assert.throws(
+    () => createModel({ name: "blank ticker", type: "bitcoin_treasury", ticker: "  " }),
+    /ticker/,
+    "a whitespace ticker is rejected",
+  );
+  const m = createModel({ name: "MicroStrategy", type: "bitcoin_treasury", ticker: "MSTR" });
+  assert.equal(m.meta.ticker, "MSTR", "resolved ticker stored on meta");
+  assert.ok(m.items.some((i) => i.name === "mstr_price"), "ticker names the price item");
+});
+
+test("non-ticker templates do not require a ticker", () => {
+  assert.equal(createModel({ name: "b", type: "blank" }).meta.type, "blank");
+  assert.equal(createModel({ name: "s", type: "saas" }).meta.type, "saas");
 });
 
 test("treasury template validates clean and converges", () => {
@@ -41,6 +63,7 @@ test("core levered-residual outputs are present and defined every period", () =>
     "nav_per_share",
     "mnav",
     "asst_price",
+    "sats_per_share",
     "implied_leverage",
     "preferred_notional",
     "preferred_dividend",
@@ -79,7 +102,7 @@ test("drawdown scenario yields lower ASST price than base", () => {
 
 test("default dashboard references only resolvable series and charts", () => {
   const m = treasury();
-  assert.ok(m.charts && m.charts.length === 5, "five charts");
+  assert.ok(m.charts && m.charts.length === 6, "six charts");
   assert.ok(m.charts!.some((c) => c.series.some((s) => s.ref === "btc_price")), "a chart plots btc_price");
   assert.ok(m.dashboard && m.dashboard.widgets.length > 0, "dashboard present");
   const names = new Set([...m.items.map((i) => i.name), ...m.drivers.map((d) => d.name)]);
@@ -129,6 +152,28 @@ test("default ticker is the neutral CO placeholder; no ASST/SATA labels", () => 
   const names = new Set(m.items.map((i) => i.name));
   assert.ok(names.has("co_price") && names.has("co_mcap"), "default items are co_price/co_mcap");
   assert.ok(!/ASST|SATA/.test(labelBlob(m)), "no ASST/SATA in default labels");
+});
+
+test("sats-per-share tracks BTC-per-share accretion and is surfaced", () => {
+  const m = treasury();
+  const { series } = computeModel(m, m.scenarios[0]!);
+  const sats = series[idOf(m, "sats_per_share")]!;
+  const btc = series[idOf(m, "btc_held")]!;
+  const shares = series[idOf(m, "common_shares")]!;
+  // equals btc_held * 100 / common_shares each period, finite and positive
+  for (let i = 0; i < sats.length; i++) {
+    assert.ok(Number.isFinite(sats[i]!) && sats[i]! > 0, `sats_per_share finite/positive at ${i}`);
+    assert.ok(Math.abs(sats[i]! - (btc[i]! * 100) / shares[i]!) < 1e-6, `formula holds at ${i}`);
+  }
+  // surfaced on the dashboard: a stat tile and a chart both reference it
+  assert.ok(
+    m.dashboard!.widgets.some((w) => w.kind === "stat" && w.refId === "sats_per_share"),
+    "a stat tile references sats_per_share",
+  );
+  assert.ok(
+    m.charts!.some((c) => c.series.some((s) => s.ref === "sats_per_share")),
+    "a chart references sats_per_share",
+  );
 });
 
 test("preferred notional grows uncapped over the horizon", () => {

@@ -6,7 +6,9 @@ import { test } from '@japa/runner'
  */
 test.group('Capital-stack endpoints', () => {
   async function createTreasury(client: any): Promise<any> {
-    const res = await client.post('/api/models').json({ name: 'Stack Treasury', type: 'bitcoin_treasury' })
+    const res = await client
+      .post('/api/models')
+      .json({ name: 'Stack Treasury', type: 'bitcoin_treasury', ticker: 'ASST' })
     res.assertStatus(201)
     return res.body().model
   }

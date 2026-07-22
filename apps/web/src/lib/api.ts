@@ -56,7 +56,13 @@ function target() {
 
 export type ServerInfo = { mode: 'local' | 'cloud'; requiresApiKey: boolean; version: string }
 export type ModelListItem = ModelMeta & { id: string }
-export type TemplateInfo = { type: ModelType; label: string; description: string }
+export type TemplateInfo = {
+  type: ModelType
+  label: string
+  description: string
+  /** When true, creating this template requires a `ticker` (the modeled company). */
+  requiresTicker?: boolean
+}
 export type PriceModelInfo = {
   id: string
   label: string

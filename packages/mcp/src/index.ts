@@ -217,7 +217,7 @@ server.registerTool(
   {
     title: 'Create model',
     description:
-      'Scaffold a new model from a template (blank, saas, bitcoin_treasury, …). Optionally choose the timeline granularity, period count, and START DATE up front — set `start` to the real first-period date (e.g. "2020-07-01") so period labels reflect actual history rather than the default. For ticker-aware templates (e.g. bitcoin_treasury) set `ticker` to the company being modeled (e.g. "MSTR") — it names the price/market-cap items and labels the charts; defaults to a neutral "CO".',
+      'Scaffold a new model from a template (blank, saas, bitcoin_treasury, …). Optionally choose the timeline granularity, period count, and START DATE up front — set `start` to the real first-period date (e.g. "2020-07-01") so period labels reflect actual history rather than the default. For ticker-aware templates, `ticker` is REQUIRED: the bitcoin_treasury template will NOT create without a `ticker` (the company being modeled, e.g. "MSTR") — it names the price/market-cap items and labels the charts. Omitting it returns an error.',
     inputSchema: {
       name: z.string(),
       type: z.string().default('blank'),
@@ -227,7 +227,9 @@ server.registerTool(
       ticker: z
         .string()
         .optional()
-        .describe('Company ticker for ticker-aware templates (e.g. "MSTR"). Defaults to "CO".'),
+        .describe(
+          'Company ticker (e.g. "MSTR"). REQUIRED for ticker-aware templates like bitcoin_treasury; creation errors without it.',
+        ),
     },
   },
   async ({ name, type, granularity, periods, start, ticker }) => {
@@ -308,7 +310,15 @@ server.registerTool(
   'set_formula',
   {
     title: 'Set formula',
-    description: "Set a line item's formula expression. Set preview=true to dry-run.",
+    description:
+      "Set a line item's formula expression (referenced by item/driver name). Set preview=true to dry-run. " +
+      'Built-in functions — time/window: prior, lag, lead, cumulative, rolling, growth; ' +
+      'math: exp, ln, sqrt, pow, round, floor, clamp, logistic, scurve, min, max, abs, sum, avg, if; ' +
+      'statistics/time-series: logret, pct_change, stdev, var, zscore, drawdown, cov, correl, beta, ' +
+      'slope, intercept, r2, periods_per_year(). Stats take an optional trailing window arg ' +
+      '(no window = expanding, all periods to date; e.g. correl(a,b,26) = trailing-26). Regression ' +
+      'is dependent-first: beta(y,x), slope(y,x), r2(y,x). Lead/lag composes lag(): correl(a, lag(b,4), 26). ' +
+      'Unknown function names now fail validation, not compute.',
     inputSchema: { modelId: z.string(), itemId: z.string(), expression: z.string(), ...previewArg },
   },
   async ({ modelId, itemId, expression, preview, full }) => {

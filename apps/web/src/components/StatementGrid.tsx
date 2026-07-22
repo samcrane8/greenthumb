@@ -1,5 +1,5 @@
 import type { Model, Statement } from '@greenthumb/core'
-import { formatNumber, periodLabel, unitHint } from '@/lib/format'
+import { formatNumber, itemLabel, periodLabel, unitHint } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /**
@@ -48,7 +48,7 @@ export function StatementGrid({
               className="border-b border-border/60 last:border-0 hover:bg-accent/40"
             >
               <td className="sticky left-0 z-10 bg-card px-4 py-1.5">
-                <span className="font-medium">{row.name.replace(/_/g, ' ')}</span>
+                <span className="font-medium">{itemLabel(row.name, model.meta.ticker)}</span>
                 {unitHint(row.unit) && (
                   <span className="eyebrow ml-2 align-middle text-muted-foreground">{unitHint(row.unit)}</span>
                 )}

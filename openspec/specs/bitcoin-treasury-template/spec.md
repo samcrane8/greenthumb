@@ -30,28 +30,45 @@ and the MCP `list_templates` tool without any adapter-specific code.
 
 The `bitcoin_treasury` template SHALL derive the modeled company's identity from a
 `ticker` supplied through `CreateModelOptions`, rather than hardcoding any single
-company. When no ticker is supplied, the template MUST default to a neutral
-placeholder ticker (`CO`) and MUST NOT attribute the model to any specific real
-company. The price and market-cap line items MUST be named
-`${ticker_lowercased}_price` and `${ticker_lowercased}_mcap`, and every internal
-reference to them — the common-share dilution formula, the display-scale tagging,
-chart series references, and dashboard widgets — MUST resolve to those names.
-Human-readable chart titles and series labels MUST use the uppercased ticker, and
-MUST NOT hardcode a company's common or preferred ticker (e.g. `ASST`, `SATA`).
-The `ticker` SHALL be exposed through the adapters that create models (the API
-store endpoint, the web client and workspace, and the MCP scaffold tool).
+company. The `ticker` SHALL be **required** to create the template through the public
+creation path (`createModel` and the API/MCP/web adapters over it): creating a
+`bitcoin_treasury` with no non-empty ticker MUST fail with a clear, actionable error
+that names the missing `ticker` parameter, rather than silently defaulting to a
+placeholder. Templates SHALL declare whether they require a ticker (a `requiresTicker`
+flag on the template registry entry) so the requirement is enforced generically and
+non-ticker templates (`blank`, `saas`) remain ticker-free.
 
-#### Scenario: default ticker is a neutral placeholder
-- **WHEN** a `bitcoin_treasury` model is created without a `ticker`
-- **THEN** the price item is named `co_price`, the market-cap item is named `co_mcap`, and no chart title or label contains `ASST` or `SATA`
+The price and market-cap line items MUST be named `${ticker_lowercased}_price` and
+`${ticker_lowercased}_mcap`, and every internal reference to them — the common-share
+dilution formula, the display-scale tagging, chart series references, and dashboard
+widgets — MUST resolve to those names. Human-readable chart titles and series labels
+MUST use the uppercased ticker, and MUST NOT hardcode a company's common or preferred
+ticker (e.g. `ASST`, `SATA`).
 
-#### Scenario: a supplied ticker names the price and market-cap items
+The resolved ticker SHALL be stored on the model (`meta.ticker`) so adapters can
+surface it. The UI SHALL display the ticker **uppercased** where it prefixes a line
+item — stat tiles and statement/KPI rows for the price/market-cap items SHALL read
+e.g. "MSTR price" / "MSTR mcap" rather than the lowercased item name.
+
+#### Scenario: creating without a ticker is rejected
+- **WHEN** a `bitcoin_treasury` model is created through `createModel` (or the API/MCP/web) with no ticker, or an empty/whitespace ticker
+- **THEN** creation fails with a clear error naming the required `ticker` parameter, and no model is produced
+
+#### Scenario: a supplied ticker names the items and is stored on the model
 - **WHEN** a `bitcoin_treasury` model is created with `ticker: "MSTR"`
-- **THEN** the model has items named `mstr_price` and `mstr_mcap`, the `new_shares` formula divides by `mstr_price`, and the price/index charts and the headline stat widget reference `mstr_price`
+- **THEN** the model has items named `mstr_price` and `mstr_mcap`, the `new_shares` formula divides by `mstr_price`, the price/index charts and the headline stat widget reference `mstr_price`, and `meta.ticker` is `"MSTR"`
+
+#### Scenario: the ticker is displayed uppercased in tiles and rows
+- **WHEN** the dashboard stat tile or the KPI/statement row for the price or market-cap item is rendered for a model with `meta.ticker`
+- **THEN** the displayed label reads the uppercased ticker prefix (e.g. "MSTR price", "MSTR mcap"), not the lowercased item name
 
 #### Scenario: labels reflect the ticker and validate
 - **WHEN** a `bitcoin_treasury` model is created with a given ticker
 - **THEN** chart titles and series labels display the uppercased ticker, and the model passes `validateModel` with no dangling-reference errors
+
+#### Scenario: non-ticker templates do not require a ticker
+- **WHEN** a `blank` or `saas` model is created with no ticker
+- **THEN** creation succeeds (those templates declare no ticker requirement)
 
 #### Scenario: Strive is expressible, not assumed
 - **WHEN** a `bitcoin_treasury` model is created with `ticker: "ASST"`
@@ -66,14 +83,15 @@ notional and its periodic dividend obligation, a **debt notional (straight plus
 convertible)**, a cash balance, common shares outstanding, `nav_to_common = reserve +
 cash + other_holdings - debt_notional - preferred_notional`, `nav_per_share`, an mNAV
 multiple, a common price `${ticker}_price = max(nav_per_share, 0) * mnav`, a market
-cap `${ticker}_mcap = ${ticker}_price * common_shares`, and `implied_leverage = reserve
-/ nav_to_common`. The `other_holdings` driver MUST represent only genuine holdings
-(e.g. STRC); debt MUST be modeled through the dedicated debt line, not as a negative
-`other_holdings`.
+cap `${ticker}_mcap = ${ticker}_price * common_shares`, a **BTC-per-share accretion
+metric `sats_per_share = btc_held * 100 / common_shares`** (sats per share, since
+share counts are in millions), and `implied_leverage = reserve / nav_to_common`. The
+`other_holdings` driver MUST represent only genuine holdings (e.g. STRC); debt MUST be
+modeled through the dedicated debt line, not as a negative `other_holdings`.
 
 #### Scenario: core outputs are present and computable
 - **WHEN** the template model is computed for its base scenario
-- **THEN** the computed series include reserve value, NAV-to-common, NAV per share, mNAV, price, and implied leverage, each defined over every period
+- **THEN** the computed series include reserve value, NAV-to-common, NAV per share, mNAV, price, sats-per-share, and implied leverage, each defined over every period
 
 #### Scenario: common equity is levered to the reserve
 - **WHEN** the reserve value rises while preferred notional is held fixed
@@ -82,6 +100,10 @@ cap `${ticker}_mcap = ${ticker}_price * common_shares`, and `implied_leverage = 
 #### Scenario: debt subtracts from common NAV
 - **WHEN** the `debt_notional` driver is increased while all else is held fixed
 - **THEN** `nav_to_common` and `nav_per_share` decrease by the added debt, and `other_holdings` is unaffected
+
+#### Scenario: sats-per-share tracks BTC-per-share accretion
+- **WHEN** the template model is computed for its base scenario
+- **THEN** a `sats_per_share` series is present, equals `btc_held * 100 / common_shares` each period, and is finite (positive) over the horizon
 
 ### Requirement: Template exposes tunable assumptions as drivers
 
@@ -119,7 +141,9 @@ drawdown/bear scenario overriding crypto price and issuance), and SHALL emit a
 default dashboard laying out headline tiles, the projection table, and treasury
 charts so the model is presentable immediately after creation. The default dashboard
 SHALL include a chart plotting the `btc_price` series over time, so the BTC price path
-that drives the model is visible directly.
+that drives the model is visible directly. The default dashboard SHALL also surface
+the **sats-per-share accretion metric** as a headline stat tile and as a line chart
+tracking it over the horizon.
 
 #### Scenario: alternate scenario is comparable
 - **WHEN** the base and drawdown scenarios are compared for `asst_price`
@@ -132,6 +156,10 @@ that drives the model is visible directly.
 #### Scenario: default dashboard plots BTC price over time
 - **WHEN** a fresh `bitcoin_treasury` model is created
 - **THEN** its charts include a chart whose series references `btc_price`, and a dashboard widget renders it
+
+#### Scenario: default dashboard surfaces sats-per-share
+- **WHEN** a fresh `bitcoin_treasury` model is created
+- **THEN** its dashboard includes a stat tile referencing `sats_per_share` and a chart whose series references `sats_per_share`, both resolving with no dangling-reference errors
 
 ### Requirement: mNAV can follow a non-monotonic premium path
 

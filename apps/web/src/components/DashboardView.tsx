@@ -10,7 +10,7 @@ import { StatementGrid } from '@/components/StatementGrid'
 const ChartView = lazy(() =>
   import('@/components/ChartView').then((m) => ({ default: m.ChartView }))
 )
-import { formatNumber, unitHint } from '@/lib/format'
+import { formatNumber, itemLabel, unitHint } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /**
@@ -197,7 +197,7 @@ function StatWidget({
         style={{ background: start === 0 ? 'var(--border)' : up ? 'var(--positive)' : 'var(--negative)' }}
       />
       <div className="eyebrow">
-        {target.label.replace(/_/g, ' ')}
+        {itemLabel(target.label, model.meta.ticker)}
         {unitHint(target.unit) && <span className="ml-1 text-muted-foreground">({unitHint(target.unit)})</span>}
       </div>
       <div className="mt-2 font-mono text-2xl font-semibold tabular-nums tracking-tight">

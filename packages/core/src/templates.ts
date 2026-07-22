@@ -201,6 +201,9 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
   const tickerLower = ticker.toLowerCase();
   const priceName = `${tickerLower}_price`;
   const mcapName = `${tickerLower}_mcap`;
+  // Store the resolved ticker so adapters can display the company identity
+  // (e.g. uppercase the item-name prefix in tiles/rows) without re-deriving it.
+  model.meta.ticker = tickerUpper;
 
   const driver = (
     name: string,
@@ -307,6 +310,10 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
     f("new_shares", "other", "count", `atm_raise / max(${priceName}, 1)`, "equity"),
     f("common_shares", "kpi", "count",
       "if(prior(common_shares) == 0, shares_start, prior(common_shares)) + new_shares", "equity"),
+    // BTC-per-share accretion metric, in SATS per share (1 BTC = 100M sats). Shares
+    // are in millions, so btc_held/common_shares is BTC per million shares; ×100
+    // converts to sats/share — a legible integer that grows when issuance is accretive.
+    f("sats_per_share", "kpi", "count", "btc_held * 100 / common_shares", "equity"),
 
     // The levered residual claim. Senior (straight) debt and face-value converts
     // are separate claims: converts rank JUNIOR to senior debt (a subordinated
@@ -380,7 +387,8 @@ export function bitcoinTreasuryModel(options: CreateModelOptions): Model {
   // figures (nav_per_share, the ticker's price) and the btc_price driver are in
   // whole dollars — tag them scale 1 so they don't inherit the $M default.
   model.meta.defaultScale = 1_000_000;
-  for (const it of model.items) if (it.name === "nav_per_share" || it.name === priceName) it.scale = 1;
+  for (const it of model.items)
+    if (it.name === "nav_per_share" || it.name === priceName || it.name === "sats_per_share") it.scale = 1;
   for (const d of model.drivers) if (d.name === "btc_price") d.scale = 1;
 
   // Capital stack (overlay): the same reserve/cash/senior-debt/preferred/common
@@ -446,8 +454,13 @@ function attachTreasuryDashboard(model: Model, priceName: string, ticker: string
   const leverageChart = chart("Implied leverage — reserve / NAV-to-common", "area", [
     { ref: "implied_leverage", label: "Implied leverage" },
   ]);
+  // BTC-per-share accretion: the headline metric — issuing shares to buy BTC should
+  // grow sats-per-share over time. Tracked over the full horizon.
+  const satsChart = chart("Sats per share — accretion over time", "line", [
+    { ref: "sats_per_share", label: "Sats / share" },
+  ]);
 
-  model.charts = [btcPriceChart, priceChart, indexChart, coverageChart, leverageChart];
+  model.charts = [btcPriceChart, priceChart, indexChart, coverageChart, leverageChart, satsChart];
 
   const widget = (
     kind: Widget["kind"],
@@ -459,8 +472,10 @@ function attachTreasuryDashboard(model: Model, priceName: string, ticker: string
   model.dashboard = {
     columns: 12,
     widgets: [
+      // Headline tiles. Sats-per-share (the accretion metric) leads; the BTC price
+      // tile is dropped as redundant with its full-width chart directly below.
       widget("stat", priceName, { x: 0, y: 0, w: 3, h: 1 }),
-      widget("stat", "btc_price", { x: 3, y: 0, w: 3, h: 1 }),
+      widget("stat", "sats_per_share", { x: 3, y: 0, w: 3, h: 1 }),
       widget("stat", "btc_held", { x: 6, y: 0, w: 3, h: 1 }),
       widget("stat", "implied_leverage", { x: 9, y: 0, w: 3, h: 1 }),
       // BTC price path spans full width — it's the driver behind everything below.
@@ -469,7 +484,9 @@ function attachTreasuryDashboard(model: Model, priceName: string, ticker: string
       widget("chart", indexChart.id, { x: 6, y: 4, w: 6, h: 3 }),
       widget("chart", coverageChart.id, { x: 0, y: 7, w: 6, h: 3 }),
       widget("chart", leverageChart.id, { x: 6, y: 7, w: 6, h: 3 }),
-      widget("statement", "kpi", { x: 0, y: 10, w: 12, h: 4 }, { title: "Quarterly projection" }),
+      // Sats-per-share accretion, full width, above the projection table.
+      widget("chart", satsChart.id, { x: 0, y: 10, w: 12, h: 3 }),
+      widget("statement", "kpi", { x: 0, y: 13, w: 12, h: 4 }, { title: "Quarterly projection" }),
     ],
   };
 }
@@ -479,6 +496,13 @@ export interface TemplateInfo {
   label: string;
   description: string;
   build: (options: CreateModelOptions) => Model;
+  /**
+   * Whether creating this template requires a `ticker` (the company being
+   * modeled). When true, `createModel` rejects creation with no ticker so the
+   * model is never silently attributed to a placeholder, and adapters can prompt
+   * for / require it. Non-ticker templates (blank, saas) leave this unset.
+   */
+  requiresTicker?: boolean;
 }
 
 /** Registry of available templates, for menus in the UI and enums in MCP. */
@@ -501,12 +525,22 @@ export const TEMPLATES: TemplateInfo[] = [
     description:
       "A BTC treasury company (MSTR/ASST-style) as a levered residual claim: reserve, perpetual preferred, dividend coverage, mNAV, implied leverage, with a Drawdown scenario and a default dashboard.",
     build: bitcoinTreasuryModel,
+    requiresTicker: true,
   },
 ];
 
-/** Build a model from a template type, falling back to blank. */
+/**
+ * Build a model from a template type, falling back to blank. Templates that
+ * declare `requiresTicker` reject creation without a non-empty `ticker` so the
+ * model is never silently attributed to a placeholder company.
+ */
 export function createModel(options: CreateModelOptions): Model {
   const type = options.type ?? "blank";
   const template = TEMPLATES.find((t) => t.type === type);
+  if (template?.requiresTicker && !options.ticker?.trim()) {
+    throw new Error(
+      `The "${template.label}" template requires a \`ticker\` (the company being modeled, e.g. "MSTR").`,
+    );
+  }
   return (template?.build ?? blankModel)(options);
 }

@@ -10,7 +10,7 @@ import { StatementGrid } from '@/components/StatementGrid'
 const ChartView = lazy(() =>
   import('@/components/ChartView').then((m) => ({ default: m.ChartView }))
 )
-import { formatNumber } from '@/lib/format'
+import { formatNumber, itemLabel, unitHint } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /**
@@ -173,9 +173,18 @@ function StatWidget({
   name: string
   computed: ComputedModel | null
 }) {
+  // Resolve the widget's ref to an item or a driver (items win name collisions,
+  // per the engine's rules). Drivers are valid stat refs too (e.g. btc_price).
   const item = model.items.find((i) => i.name === name)
-  const series = item ? computed?.series[item.id] : undefined
-  if (!item) return <Missing what={`item "${name}"`} />
+  const driver = item ? undefined : model.drivers.find((d) => d.name === name)
+  const def = model.meta.defaultScale ?? 1
+  const target = item
+    ? { label: item.name, unit: item.unit, series: computed?.series[item.id], scale: item.scale ?? def }
+    : driver
+      ? { label: driver.name, unit: driver.unit, series: computed?.drivers[driver.id], scale: driver.scale ?? def }
+      : undefined
+  if (!target) return <Missing what={`item "${name}"`} />
+  const { series } = target
   const last = model.timeline.periods - 1
   const end = series?.[last] ?? 0
   const start = series?.[0] ?? 0
@@ -187,9 +196,12 @@ function StatWidget({
         className="absolute inset-x-0 top-0 h-px"
         style={{ background: start === 0 ? 'var(--border)' : up ? 'var(--positive)' : 'var(--negative)' }}
       />
-      <div className="eyebrow">{item.name.replace(/_/g, ' ')}</div>
+      <div className="eyebrow">
+        {itemLabel(target.label, model.meta.ticker)}
+        {unitHint(target.unit) && <span className="ml-1 text-muted-foreground">({unitHint(target.unit)})</span>}
+      </div>
       <div className="mt-2 font-mono text-2xl font-semibold tabular-nums tracking-tight">
-        {formatNumber(end, item.unit)}
+        {formatNumber(end, target.unit, target.scale)}
       </div>
       {start !== 0 && (
         <div

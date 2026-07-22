@@ -8,6 +8,7 @@ import PreferencesPage from '@/pages/settings/PreferencesPage'
 import ProfilePage from '@/pages/settings/ProfilePage'
 import CloudPage from '@/pages/settings/CloudPage'
 import McpPage from '@/pages/settings/McpPage'
+import DataSourcesPage from '@/pages/settings/DataSourcesPage'
 
 /**
  * Client-side routes. The workspace stays at `/`. Account settings live under
@@ -30,6 +31,7 @@ const router = createBrowserRouter([
           { path: 'profile', element: <ProfilePage /> },
           { path: 'cloud', element: <CloudPage /> },
           { path: 'mcp', element: <McpPage /> },
+          { path: 'data-sources', element: <DataSourcesPage /> },
         ],
       },
       // Back-compat: the old top-level MCP link now lives under settings.

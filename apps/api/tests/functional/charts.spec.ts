@@ -7,7 +7,10 @@ import { test } from '@japa/runner'
  */
 test.group('Charts & dashboard endpoints', () => {
   async function createTreasury(client: any): Promise<string> {
-    const res = await client.post('/api/models').json({ name: 'Test Treasury', type: 'bitcoin_treasury' })
+    // Pin the ticker so the price item resolves as `asst_price` (default is `co_price`).
+    const res = await client
+      .post('/api/models')
+      .json({ name: 'Test Treasury', type: 'bitcoin_treasury', ticker: 'ASST' })
     res.assertStatus(201)
     return res.body().model.id
   }
@@ -18,8 +21,23 @@ test.group('Charts & dashboard endpoints', () => {
     res.assertStatus(200)
     const model = res.body()
     assert.isArray(model.charts)
-    assert.equal(model.charts.length, 5)
+    assert.equal(model.charts.length, 6)
     assert.isArray(model.dashboard.widgets)
+    assert.equal(model.meta.ticker, 'ASST', 'resolved ticker stored on the model')
+  })
+
+  test('creating a treasury without a ticker is rejected with a clear error', async ({
+    client,
+    assert,
+  }) => {
+    const res = await client.post('/api/models').json({ name: 'No Ticker', type: 'bitcoin_treasury' })
+    res.assertStatus(400)
+    assert.match(res.body().error, /ticker/i)
+  })
+
+  test('blank/saas templates create without a ticker', async ({ client }) => {
+    const res = await client.post('/api/models').json({ name: 'Blanky', type: 'blank' })
+    res.assertStatus(201)
   })
 
   test('chart data is derived and reflects the scenario', async ({ client, assert }) => {

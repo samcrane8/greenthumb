@@ -7,7 +7,7 @@ import { test } from '@japa/runner'
  */
 test.group('Model editing endpoints', () => {
   async function createTreasury(client: any, periods?: number): Promise<any> {
-    const body: any = { name: 'Edit Treasury', type: 'bitcoin_treasury' }
+    const body: any = { name: 'Edit Treasury', type: 'bitcoin_treasury', ticker: 'ASST' }
     if (periods) body.timeline = { granularity: 'quarterly', periods }
     const res = await client.post('/api/models').json(body)
     res.assertStatus(201)

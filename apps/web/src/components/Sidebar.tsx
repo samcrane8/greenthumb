@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { Boxes, LayoutGrid, Plug, Plus, Sprout, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { AccountSection } from '@/components/AccountSection'
 import { useWorkspace } from '@/workspace/WorkspaceContext'
 import { cn } from '@/lib/utils'
@@ -17,15 +18,35 @@ export function Sidebar() {
   const { models, templates, selectedId, setSelectedId, deleteModel, createModel, busy } =
     useWorkspace()
   const navigate = useNavigate()
+  // When a ticker-required template is picked, we prompt for the ticker inline
+  // before creating (instead of silently defaulting the company identity).
+  const [tickerFor, setTickerFor] = useState<TemplateInfo | null>(null)
+  const [ticker, setTicker] = useState('')
 
   function openModel(id: string) {
     setSelectedId(id)
     navigate('/')
   }
 
-  async function createAndOpen(type: TemplateInfo['type'], label: string) {
-    await createModel(type, label)
+  async function createAndOpen(type: TemplateInfo['type'], label: string, tkr?: string) {
+    await createModel(type, label, tkr)
     navigate('/')
+  }
+
+  function pickTemplate(t: TemplateInfo) {
+    if (t.requiresTicker) {
+      setTicker('')
+      setTickerFor(t)
+    } else {
+      void createAndOpen(t.type, t.label)
+    }
+  }
+
+  async function confirmTicker() {
+    if (!tickerFor || !ticker.trim()) return
+    const t = tickerFor
+    setTickerFor(null)
+    await createAndOpen(t.type, t.label, ticker.trim())
   }
 
   return (
@@ -81,11 +102,37 @@ export function Sidebar() {
             size="sm"
             className="w-full justify-start text-muted-foreground hover:text-foreground"
             disabled={busy}
-            onClick={() => void createAndOpen(t.type, t.label)}
+            onClick={() => pickTemplate(t)}
           >
             <Plus className="size-4" /> {t.label}
           </Button>
         ))}
+        {tickerFor && (
+          <div className="mt-1.5 rounded-md border bg-background p-2">
+            <label className="eyebrow px-0.5 pb-1 block">Ticker for {tickerFor.label}</label>
+            <div className="flex gap-1.5">
+              <Input
+                autoFocus
+                value={ticker}
+                onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void confirmTicker()
+                  if (e.key === 'Escape') setTickerFor(null)
+                }}
+                placeholder="e.g. MSTR"
+                className="h-8"
+              />
+              <Button
+                size="sm"
+                className="h-8 shrink-0"
+                disabled={busy || !ticker.trim()}
+                onClick={() => void confirmTicker()}
+              >
+                Create
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <AccountSection />

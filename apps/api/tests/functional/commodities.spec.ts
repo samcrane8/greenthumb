@@ -8,7 +8,9 @@ import { test } from '@japa/runner'
  */
 test.group('Commodity pricing endpoints', () => {
   async function createTreasury(client: any): Promise<any> {
-    const res = await client.post('/api/models').json({ name: 'Commodity Treasury', type: 'bitcoin_treasury' })
+    const res = await client
+      .post('/api/models')
+      .json({ name: 'Commodity Treasury', type: 'bitcoin_treasury', ticker: 'ASST' })
     res.assertStatus(201)
     return res.body().model
   }

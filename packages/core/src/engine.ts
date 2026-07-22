@@ -12,7 +12,7 @@
  */
 
 import { evaluate, parse, referencedNames, type Node } from "./formula.js";
-import type { ComputedModel, Driver, Model, Scenario } from "./types.js";
+import type { ComputedModel, Driver, Model, Scenario, Timeline } from "./types.js";
 
 export interface SolveOptions {
   maxIterations?: number;
@@ -45,6 +45,23 @@ interface Compiled {
   itemId: string;
   ast: Node;
   samePeriodDeps: string[]; // referenced names evaluated at the current period
+}
+
+/**
+ * Periods per year for a timeline granularity, for annualization in the formula
+ * layer (`periods_per_year()`). Weekly maps to 52 if/when a weekly grain exists.
+ */
+function periodsPerYear(granularity: Timeline["granularity"]): number {
+  switch (granularity) {
+    case "monthly":
+      return 12;
+    case "quarterly":
+      return 4;
+    case "annual":
+      return 1;
+    default:
+      return 1;
+  }
 }
 
 /**
@@ -130,7 +147,7 @@ export function computeModel(
     }
     return series[sym.id]?.[period] ?? 0;
   };
-  const ctx = { resolve, periods };
+  const ctx = { resolve, periods, periodsPerYear: periodsPerYear(model.timeline.granularity) };
 
   // Fixed-point iteration. Acyclic models converge on the 2nd pass (delta 0);
   // cyclic models iterate until the change falls under epsilon or we bail.
@@ -156,7 +173,18 @@ export function computeModel(
     }
   }
 
-  const result: ComputedModel = { scenarioId: scenario.id, series, converged, iterations };
+  // Expose the scenario-applied driver series so adapters can resolve a name to an
+  // item or a driver (items win) without duplicating driver expansion.
+  const driversOut: Record<string, number[]> = {};
+  for (const [id, values] of driverSeries) driversOut[id] = values;
+
+  const result: ComputedModel = {
+    scenarioId: scenario.id,
+    series,
+    drivers: driversOut,
+    converged,
+    iterations,
+  };
   if (asOf !== undefined && lookAhead.size > 0) result.lookAhead = [...lookAhead];
   return result;
 }

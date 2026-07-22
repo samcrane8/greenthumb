@@ -27,7 +27,7 @@ interface WorkspaceValue {
   errorCount: number
   editing: boolean
   setEditing: (v: boolean) => void
-  createModel: (type: TemplateInfo['type'], label: string) => Promise<void>
+  createModel: (type: TemplateInfo['type'], label: string, ticker?: string) => Promise<void>
   deleteModel: (id: string) => Promise<void>
   setScalar: (driverId: string, value: number) => Promise<void>
   /** Fold an edit result (from a chart/dashboard mutation) back into state. */
@@ -88,10 +88,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [model, scenarioId, kind])
 
   const createModel = useCallback(
-    async (type: TemplateInfo['type'], label: string) => {
+    async (type: TemplateInfo['type'], label: string, ticker?: string) => {
       setBusy(true)
       try {
-        const { model: created } = await api.createModel({ name: `${label} model`, type })
+        const { model: created } = await api.createModel({ name: `${label} model`, type, ticker })
         await refreshModels()
         setSelectedId(created.id)
       } finally {

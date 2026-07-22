@@ -41,6 +41,11 @@ export {
   type ChartDataSeries,
 } from "./outputs.js";
 export {
+  analyzeCapitalStack,
+  type CapitalStackAnalysis,
+  type TrancheResult,
+} from "./capitalstack.js";
+export {
   COMMODITIES,
   listCommodities,
   findPriceModel,

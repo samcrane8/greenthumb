@@ -1,0 +1,848 @@
+{
+  "id": "mdl_6ca2512d6781",
+  "meta": {
+    "name": "MSTR — Numba Go Up (BTC → ~$335k)",
+    "type": "bitcoin_treasury",
+    "baseCurrency": "USD",
+    "createdAt": "2026-07-15T16:56:30.408Z",
+    "modifiedAt": "2026-07-15T16:57:28.043Z",
+    "version": 10,
+    "defaultScale": 1000000
+  },
+  "timeline": {
+    "granularity": "quarterly",
+    "start": "2026-07-01",
+    "periods": 20,
+    "fiscalYearStartMonth": 1,
+    "actualsThrough": -1
+  },
+  "items": [
+    {
+      "id": "itm_e7345708a34f",
+      "name": "period_index",
+      "category": "other",
+      "unit": "count",
+      "section": "_internal",
+      "definition": {
+        "kind": "input",
+        "values": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      }
+    },
+    {
+      "id": "itm_449cd38e3d66",
+      "name": "reserve",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "reserve",
+      "definition": {
+        "kind": "formula",
+        "expression": "btc_held * btc_price / 1000000"
+      }
+    },
+    {
+      "id": "itm_de743a649f6a",
+      "name": "preferred_raise_target",
+      "category": "other",
+      "unit": "currency",
+      "section": "financing",
+      "definition": {
+        "kind": "formula",
+        "expression": "scurve(period_index, issuance_start, issuance_peak, issuance_ramp)"
+      }
+    },
+    {
+      "id": "itm_374bb5464500",
+      "name": "prev_preferred",
+      "category": "other",
+      "unit": "currency",
+      "section": "financing",
+      "definition": {
+        "kind": "formula",
+        "expression": "if(prior(preferred_notional) == 0, preferred_start, prior(preferred_notional))"
+      }
+    },
+    {
+      "id": "itm_9b74cd79cc3a",
+      "name": "preferred_raise",
+      "category": "other",
+      "unit": "currency",
+      "section": "financing",
+      "definition": {
+        "kind": "formula",
+        "expression": "max(0, preferred_raise_target)"
+      }
+    },
+    {
+      "id": "itm_c87c26a4ace1",
+      "name": "preferred_notional",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "financing",
+      "definition": {
+        "kind": "formula",
+        "expression": "prev_preferred + preferred_raise"
+      }
+    },
+    {
+      "id": "itm_fe6c83dedaba",
+      "name": "preferred_dividend",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "financing",
+      "definition": {
+        "kind": "formula",
+        "expression": "preferred_notional * div_rate / 4"
+      }
+    },
+    {
+      "id": "itm_57c65dc043f2",
+      "name": "div_coverage",
+      "category": "kpi",
+      "unit": "ratio",
+      "section": "financing",
+      "definition": {
+        "kind": "formula",
+        "expression": "if(preferred_dividend == 0, 0, preferred_raise / preferred_dividend)"
+      }
+    },
+    {
+      "id": "itm_fc116bc12244",
+      "name": "dividend_shortfall",
+      "category": "other",
+      "unit": "currency",
+      "section": "financing",
+      "definition": {
+        "kind": "formula",
+        "expression": "max(0, preferred_dividend - preferred_raise)"
+      }
+    },
+    {
+      "id": "itm_c08331014c84",
+      "name": "cash",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "reserve",
+      "definition": {
+        "kind": "formula",
+        "expression": "max(0, cash_start - cumulative(dividend_shortfall))"
+      }
+    },
+    {
+      "id": "itm_534b3b3e0691",
+      "name": "net_preferred_capital",
+      "category": "other",
+      "unit": "currency",
+      "section": "reserve",
+      "definition": {
+        "kind": "formula",
+        "expression": "max(0, preferred_raise - preferred_dividend)"
+      }
+    },
+    {
+      "id": "itm_4b3f384e2fe7",
+      "name": "btc_bought",
+      "category": "other",
+      "unit": "count",
+      "section": "reserve",
+      "definition": {
+        "kind": "formula",
+        "expression": "(net_preferred_capital + atm_raise) * 1000000 / btc_price"
+      }
+    },
+    {
+      "id": "itm_899475affea3",
+      "name": "btc_held",
+      "category": "kpi",
+      "unit": "count",
+      "section": "reserve",
+      "definition": {
+        "kind": "formula",
+        "expression": "if(prior(btc_held) == 0, btc_held_start, prior(btc_held)) + btc_bought"
+      }
+    },
+    {
+      "id": "itm_7951a709f251",
+      "name": "new_shares",
+      "category": "other",
+      "unit": "count",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "atm_raise / max(co_price, 1)"
+      }
+    },
+    {
+      "id": "itm_a26384988927",
+      "name": "common_shares",
+      "category": "kpi",
+      "unit": "count",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "if(prior(common_shares) == 0, shares_start, prior(common_shares)) + new_shares"
+      }
+    },
+    {
+      "id": "itm_809e97289558",
+      "name": "senior_debt",
+      "category": "other",
+      "unit": "currency",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "debt_notional"
+      }
+    },
+    {
+      "id": "itm_ae2d6ce7c012",
+      "name": "convert_claim",
+      "category": "other",
+      "unit": "currency",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "convertible_debt * (1 - convert_as_equity)"
+      }
+    },
+    {
+      "id": "itm_d167e0b7ba69",
+      "name": "nav_to_common",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "reserve + cash + other_holdings - senior_debt - convert_claim - preferred_notional"
+      }
+    },
+    {
+      "id": "itm_e1d89592ffac",
+      "name": "nav_per_share",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "nav_to_common / common_shares"
+      },
+      "scale": 1
+    },
+    {
+      "id": "itm_41a5a9520215",
+      "name": "mnav",
+      "category": "kpi",
+      "unit": "ratio",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "mnav_path"
+      }
+    },
+    {
+      "id": "itm_0d44090b1978",
+      "name": "co_price",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "max(nav_per_share, 0) * mnav"
+      },
+      "scale": 1
+    },
+    {
+      "id": "itm_31c0294cd1e3",
+      "name": "co_mcap",
+      "category": "kpi",
+      "unit": "currency",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "co_price * common_shares"
+      }
+    },
+    {
+      "id": "itm_39b198debe6d",
+      "name": "implied_leverage",
+      "category": "kpi",
+      "unit": "ratio",
+      "section": "equity",
+      "definition": {
+        "kind": "formula",
+        "expression": "if(nav_to_common <= 0, 99, reserve / nav_to_common)"
+      }
+    }
+  ],
+  "drivers": [
+    {
+      "id": "drv_b1fc99e5f25a",
+      "name": "btc_held_start",
+      "unit": "count",
+      "shape": "scalar",
+      "values": [
+        844000
+      ],
+      "notes": "BTC on the treasury at start"
+    },
+    {
+      "id": "drv_b588d38d0d0e",
+      "name": "preferred_start",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        8000
+      ],
+      "notes": "Perpetual preferred notional at start ($M)"
+    },
+    {
+      "id": "drv_82ebed4a8ef1",
+      "name": "cash_start",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        2200
+      ],
+      "notes": "Cash buffer at start ($M)"
+    },
+    {
+      "id": "drv_5f16419fd504",
+      "name": "other_holdings",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        200
+      ],
+      "notes": "Genuine other holdings, e.g. STRC ($M), held flat"
+    },
+    {
+      "id": "drv_4eaa24296038",
+      "name": "debt_notional",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        0
+      ],
+      "notes": "Straight debt notional ($M); subtracts from common NAV at face value"
+    },
+    {
+      "id": "drv_c90227858f6f",
+      "name": "convertible_debt",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        8200
+      ],
+      "notes": "Convertible debt notional ($M)"
+    },
+    {
+      "id": "drv_c72c1b35471a",
+      "name": "convert_as_equity",
+      "unit": "ratio",
+      "shape": "scalar",
+      "values": [
+        1
+      ],
+      "notes": "1 = convertibles treated as LOOK-THROUGH EQUITY: excluded from senior claims, so NAV-to-common isn't wiped in a drawdown. This first-order model does NOT auto-add conversion shares — reflect the dilution in the share count (raise shares_start, or replay actual shares). 0 = face-value debt (subtracts at par)."
+    },
+    {
+      "id": "drv_1045029c1110",
+      "name": "shares_start",
+      "unit": "count",
+      "shape": "scalar",
+      "values": [
+        386
+      ],
+      "notes": "Common shares outstanding at start (M)"
+    },
+    {
+      "id": "drv_46bf1e68211c",
+      "name": "issuance_start",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        910
+      ],
+      "notes": "Preferred issuance at start of ramp ($M/qtr)"
+    },
+    {
+      "id": "drv_790dadfd5121",
+      "name": "issuance_peak",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        4550
+      ],
+      "notes": "Preferred issuance at peak of ramp ($M/qtr)"
+    },
+    {
+      "id": "drv_178816acc34a",
+      "name": "issuance_ramp",
+      "unit": "count",
+      "shape": "scalar",
+      "values": [
+        7
+      ],
+      "notes": "S-curve ramp length (quarters)"
+    },
+    {
+      "id": "drv_229001c4a093",
+      "name": "div_rate",
+      "unit": "percent",
+      "shape": "scalar",
+      "values": [
+        0.1
+      ],
+      "notes": "Preferred dividend rate (annual)"
+    },
+    {
+      "id": "drv_3bc8b70b4f99",
+      "name": "atm_raise",
+      "unit": "currency",
+      "shape": "scalar",
+      "values": [
+        390
+      ],
+      "notes": "Common ATM issuance ($M/qtr)"
+    },
+    {
+      "id": "drv_65d384c86b8f",
+      "name": "mnav_path",
+      "unit": "ratio",
+      "shape": "series",
+      "values": [
+        1.5,
+        1.35,
+        1.4,
+        1.45,
+        1.55,
+        1.6,
+        1.65,
+        1.7,
+        1.75,
+        1.85,
+        1.9,
+        1.95,
+        2,
+        2,
+        1.95,
+        1.85,
+        1.55,
+        1.35,
+        1.25,
+        1.2
+      ],
+      "notes": "Common mNAV premium per period — settable to an observed/cyclical path"
+    },
+    {
+      "id": "drv_34c61b07c78b",
+      "name": "btc_price",
+      "unit": "currency",
+      "shape": "series",
+      "values": [
+        64000,
+        56000,
+        62000,
+        70000,
+        80000,
+        92000,
+        105000,
+        120000,
+        135000,
+        155000,
+        175000,
+        200000,
+        230000,
+        265000,
+        300000,
+        335000,
+        300000,
+        235000,
+        185000,
+        165000
+      ],
+      "notes": "BTC price — power-law trend + halving-cycle oscillation, spot-anchored",
+      "scale": 1
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "scn_b9e6b76efee2",
+      "name": "Base",
+      "overrides": {}
+    },
+    {
+      "id": "scn_0cbba9885d8b",
+      "name": "Drawdown",
+      "overrides": {
+        "drv_34c61b07c78b": [
+          50051.54682041727,
+          76927.33372093318,
+          111933.39563059647,
+          146676.4131360824,
+          169920.97703376948,
+          171513.060993572,
+          152103.69421082782,
+          122529.32902943593,
+          93646.32132849323,
+          71327.18943662007,
+          57280.344776721126,
+          50814.557372273615,
+          50981.446055920285,
+          58687.63944352845,
+          76738.29804240566,
+          109586.64017583113,
+          165281.46326473853,
+          250162.2550013346,
+          358595.5612973203,
+          463242.99988023145
+        ],
+        "drv_46bf1e68211c": [
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300,
+          300
+        ],
+        "drv_790dadfd5121": [
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900,
+          900
+        ]
+      },
+      "priceModels": {
+        "drv_34c61b07c78b": {
+          "commodity": "bitcoin",
+          "model": "powerlaw",
+          "params": {
+            "band": "support",
+            "amplitude": 0.9
+          }
+        }
+      }
+    },
+    {
+      "id": "scn_2563b18666f8",
+      "name": "Power-law support",
+      "overrides": {
+        "drv_34c61b07c78b": [
+          50051.54682041727,
+          67219.71500498874,
+          87265.70102563259,
+          106148.07606534025,
+          119741.3129316947,
+          124157.90284735846,
+          118899.11903696308,
+          107290.69502949373,
+          93716.82658950654,
+          81684.67594934904,
+          73510.81186904611,
+          70236.1950384426,
+          72346.1010433217,
+          81048.22307836336,
+          98116.21943479088,
+          125238.50734789301,
+          165281.46326473853,
+          218593.764697439,
+          279568.87097899354,
+          335243.76644254616
+        ]
+      },
+      "priceModels": {
+        "drv_34c61b07c78b": {
+          "commodity": "bitcoin",
+          "model": "powerlaw",
+          "params": {
+            "band": "support"
+          }
+        }
+      }
+    }
+  ],
+  "capitalStack": {
+    "assetRefs": [
+      "reserve",
+      "cash",
+      "other_holdings"
+    ],
+    "tranches": [
+      {
+        "id": "trn_921186301777",
+        "name": "Senior debt",
+        "kind": "senior_debt",
+        "seniority": 10,
+        "notionalRef": "senior_debt"
+      },
+      {
+        "id": "trn_bc71eb63785c",
+        "name": "Convertible (face value)",
+        "kind": "subordinated_debt",
+        "seniority": 15,
+        "notionalRef": "convert_claim"
+      },
+      {
+        "id": "trn_093b64d30ef4",
+        "name": "Preferred",
+        "kind": "preferred",
+        "seniority": 20,
+        "notionalRef": "preferred_notional",
+        "rateRef": "div_rate"
+      },
+      {
+        "id": "trn_98294748e3a2",
+        "name": "Common",
+        "kind": "common",
+        "seniority": 100,
+        "sharesRef": "common_shares"
+      }
+    ]
+  },
+  "charts": [
+    {
+      "id": "cht_8e6c1c02ea21",
+      "title": "BTC price over time — power law + halving-cycle oscillation",
+      "kind": "line",
+      "series": [
+        {
+          "ref": "btc_price",
+          "label": "BTC price"
+        }
+      ]
+    },
+    {
+      "id": "cht_fb6bddbc5395",
+      "title": "CO common — levered residual claim on BTC",
+      "kind": "line",
+      "series": [
+        {
+          "ref": "co_price",
+          "label": "CO price"
+        },
+        {
+          "ref": "nav_per_share",
+          "label": "NAV / share",
+          "style": "line"
+        }
+      ]
+    },
+    {
+      "id": "cht_f36547cc74c1",
+      "title": "CO vs BTC — leverage amplifies both directions (indexed)",
+      "kind": "line",
+      "series": [
+        {
+          "ref": "co_price",
+          "label": "CO",
+          "index": true
+        },
+        {
+          "ref": "btc_price",
+          "label": "BTC",
+          "index": true
+        }
+      ]
+    },
+    {
+      "id": "cht_6edc0b147d45",
+      "title": "Preferred dividend coverage — raise vs. obligation",
+      "kind": "composed",
+      "series": [
+        {
+          "ref": "preferred_dividend",
+          "label": "Preferred dividend ($M)",
+          "style": "bar"
+        },
+        {
+          "ref": "preferred_raise",
+          "label": "Preferred raise ($M)",
+          "style": "bar"
+        },
+        {
+          "ref": "div_coverage",
+          "label": "Coverage (x)",
+          "style": "line",
+          "axis": "right"
+        }
+      ]
+    },
+    {
+      "id": "cht_52149c9b0ca7",
+      "title": "Implied leverage — reserve / NAV-to-common",
+      "kind": "area",
+      "series": [
+        {
+          "ref": "implied_leverage",
+          "label": "Implied leverage"
+        }
+      ]
+    }
+  ],
+  "dashboard": {
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "wgt_289ff078d704",
+        "kind": "stat",
+        "refId": "co_price",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 3,
+          "h": 1
+        }
+      },
+      {
+        "id": "wgt_71866a254c6b",
+        "kind": "stat",
+        "refId": "btc_price",
+        "layout": {
+          "x": 3,
+          "y": 0,
+          "w": 3,
+          "h": 1
+        }
+      },
+      {
+        "id": "wgt_b5e143ab941a",
+        "kind": "stat",
+        "refId": "btc_held",
+        "layout": {
+          "x": 6,
+          "y": 0,
+          "w": 3,
+          "h": 1
+        }
+      },
+      {
+        "id": "wgt_b2bbd2d0b246",
+        "kind": "stat",
+        "refId": "implied_leverage",
+        "layout": {
+          "x": 9,
+          "y": 0,
+          "w": 3,
+          "h": 1
+        }
+      },
+      {
+        "id": "wgt_24caa491f0cd",
+        "kind": "chart",
+        "refId": "cht_8e6c1c02ea21",
+        "layout": {
+          "x": 0,
+          "y": 1,
+          "w": 12,
+          "h": 3
+        }
+      },
+      {
+        "id": "wgt_fab2f4db9521",
+        "kind": "chart",
+        "refId": "cht_fb6bddbc5395",
+        "layout": {
+          "x": 0,
+          "y": 4,
+          "w": 6,
+          "h": 3
+        }
+      },
+      {
+        "id": "wgt_0efef5518892",
+        "kind": "chart",
+        "refId": "cht_f36547cc74c1",
+        "layout": {
+          "x": 6,
+          "y": 4,
+          "w": 6,
+          "h": 3
+        }
+      },
+      {
+        "id": "wgt_ff8a66049c2c",
+        "kind": "chart",
+        "refId": "cht_6edc0b147d45",
+        "layout": {
+          "x": 0,
+          "y": 7,
+          "w": 6,
+          "h": 3
+        }
+      },
+      {
+        "id": "wgt_90e08f7ed257",
+        "kind": "chart",
+        "refId": "cht_52149c9b0ca7",
+        "layout": {
+          "x": 6,
+          "y": 7,
+          "w": 6,
+          "h": 3
+        }
+      },
+      {
+        "id": "wgt_2e9b5ae56b93",
+        "kind": "statement",
+        "refId": "kpi",
+        "layout": {
+          "x": 0,
+          "y": 10,
+          "w": 12,
+          "h": 4
+        },
+        "title": "Quarterly projection"
+      }
+    ]
+  }
+}

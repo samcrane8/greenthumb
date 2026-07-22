@@ -35,4 +35,14 @@ export default await Env.create(new URL('../', import.meta.url), {
   | for local desktop use (no egress, no gate); set it for each cloud instance.
   */
   API_KEY: Env.schema.string.optional(),
+
+  /*
+  |--------------------------------------------------------------------------
+  | Market-data provider keys (LOCAL config only — never in model JSON or git)
+  |--------------------------------------------------------------------------
+  | Optional. The keyless default provider (Stooq) needs none.
+  */
+  ALPHAVANTAGE_API_KEY: Env.schema.string.optional(),
+  /** Where provider keys are stored locally. Override in tests to isolate. */
+  PROVIDERS_CONFIG_PATH: Env.schema.string.optional(),
 })

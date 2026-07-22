@@ -40,7 +40,31 @@ export interface EvalContext {
   resolve(name: string, period: number): number;
   /** Total number of periods on the timeline. */
   periods: number;
+  /**
+   * Periods per year for the timeline granularity (monthly→12, quarterly→4,
+   * annual→1). Read by `periods_per_year()` for annualization. Defaults to 1
+   * when absent (annual).
+   */
+  periodsPerYear?: number;
 }
+
+/**
+ * The complete set of built-in function names the evaluator dispatches. Single
+ * source of truth: `evalCall` handles exactly these, and validation resolves
+ * every formula's function calls against this set (see `referencedFunctions`).
+ * A guard test asserts the switch and this set never drift apart.
+ */
+export const KNOWN_FUNCTIONS: ReadonlySet<string> = new Set([
+  // time-shift / window
+  "prior", "lag", "lead", "cumulative", "rolling", "growth",
+  // arithmetic / logic
+  "min", "max", "abs", "sum", "avg", "if",
+  // stateless math
+  "exp", "ln", "sqrt", "pow", "round", "floor", "clamp", "logistic", "scurve",
+  // statistics / time-series
+  "logret", "pct_change", "stdev", "var", "zscore", "drawdown",
+  "cov", "correl", "beta", "slope", "intercept", "r2", "periods_per_year",
+]);
 
 // ---------------------------------------------------------------------------
 // Tokenizer
@@ -229,6 +253,28 @@ export function referencedNames(node: Node): string[] {
         walk(n.right);
         break;
       case "call":
+        n.args.forEach(walk);
+        break;
+    }
+  };
+  walk(node);
+  return [...out];
+}
+
+/** Every distinct function name called anywhere in an expression AST. */
+export function referencedFunctions(node: Node): string[] {
+  const out = new Set<string>();
+  const walk = (n: Node) => {
+    switch (n.type) {
+      case "unary":
+        walk(n.arg);
+        break;
+      case "binary":
+        walk(n.left);
+        walk(n.right);
+        break;
+      case "call":
+        out.add(n.name);
         n.args.forEach(walk);
         break;
     }
@@ -472,9 +518,163 @@ function evalCall(
       const s = 1 / (1 + Math.exp(-k * (t - ramp / 2)));
       return finite(start + (peak - start) * s);
     }
+    // --- Statistics / time-series (period-window; see KNOWN_FUNCTIONS) ---------
+    // Convention: no `window` arg => expanding (all periods 0..period, like
+    // `cumulative`); a trailing integer `window` => trailing window (like
+    // `rolling`). Fewer than two observations, or a zero-variance denominator,
+    // yields 0 (via `finite`) — never NaN/Infinity. Lead/lag is expressed by
+    // composing `lag(x, k)` inside these, not a separate parameter.
+    case "logret": {
+      requireArgs(name, args, 1);
+      const prev = at(args[0]!, period - 1);
+      const cur = arg(0);
+      return prev > 0 && cur > 0 ? finite(Math.log(cur / prev)) : 0;
+    }
+    case "pct_change": {
+      requireArgs(name, args, 1);
+      const prev = at(args[0]!, period - 1);
+      return prev === 0 ? 0 : arg(0) / prev - 1;
+    }
+    case "periods_per_year":
+      requireArgs(name, args, 0);
+      return ctx.periodsPerYear ?? 1;
+    case "drawdown": {
+      requireArgs(name, args, 1);
+      let peak = -Infinity;
+      for (let p = 0; p <= period; p++) peak = Math.max(peak, at(args[0]!, p));
+      return peak > 0 ? finite(arg(0) / peak - 1) : 0;
+    }
+    case "var":
+      requireArgs2(name, args, 1, 2);
+      return finite(sampleVar(windowVals(at, args[0]!, winArg(args, arg, 1), period)));
+    case "stdev":
+      requireArgs2(name, args, 1, 2);
+      return finite(Math.sqrt(sampleVar(windowVals(at, args[0]!, winArg(args, arg, 1), period))));
+    case "zscore": {
+      requireArgs2(name, args, 1, 2);
+      const xs = windowVals(at, args[0]!, winArg(args, arg, 1), period);
+      const sd = Math.sqrt(sampleVar(xs));
+      return sd === 0 ? 0 : finite((arg(0) - mean(xs)) / sd);
+    }
+    case "cov":
+      requireArgs2(name, args, 2, 3);
+      return finite(pairCov(at, args, arg, period, 2));
+    case "correl": {
+      requireArgs2(name, args, 2, 3);
+      const w = winArg(args, arg, 2);
+      const xs = windowVals(at, args[0]!, w, period);
+      const ys = windowVals(at, args[1]!, w, period);
+      const denom = Math.sqrt(sampleVar(xs) * sampleVar(ys));
+      return denom === 0 ? 0 : clampUnit(finite(sampleCov(xs, ys) / denom));
+    }
+    case "beta":
+    case "slope": {
+      // beta(y, x[, w]) = slope of y on x = cov(y, x) / var(x)
+      requireArgs2(name, args, 2, 3);
+      const w = winArg(args, arg, 2);
+      const ys = windowVals(at, args[0]!, w, period);
+      const xs = windowVals(at, args[1]!, w, period);
+      const vx = sampleVar(xs);
+      return vx === 0 ? 0 : finite(sampleCov(ys, xs) / vx);
+    }
+    case "intercept": {
+      // intercept = mean(y) - slope * mean(x)
+      requireArgs2(name, args, 2, 3);
+      const w = winArg(args, arg, 2);
+      const ys = windowVals(at, args[0]!, w, period);
+      const xs = windowVals(at, args[1]!, w, period);
+      const vx = sampleVar(xs);
+      const slope = vx === 0 ? 0 : sampleCov(ys, xs) / vx;
+      return finite(mean(ys) - slope * mean(xs));
+    }
+    case "r2": {
+      // r2 = correl(y, x)^2
+      requireArgs2(name, args, 2, 3);
+      const w = winArg(args, arg, 2);
+      const ys = windowVals(at, args[0]!, w, period);
+      const xs = windowVals(at, args[1]!, w, period);
+      const denom = Math.sqrt(sampleVar(ys) * sampleVar(xs));
+      if (denom === 0) return 0;
+      const r = sampleCov(ys, xs) / denom;
+      return finite(r * r);
+    }
     default:
       throw new FormulaError(`Unknown function '${name}()'`);
   }
+}
+
+// --- Statistics helpers -----------------------------------------------------
+
+/** Values of a node over a window ending at `period`. No window => expanding. */
+function windowVals(
+  at: (n: Node, p: number) => number,
+  node: Node,
+  window: number | undefined,
+  period: number,
+): number[] {
+  const start = window && window > 0 ? Math.max(0, period - window + 1) : 0;
+  const out: number[] = [];
+  for (let p = start; p <= period; p++) out.push(at(node, p));
+  return out;
+}
+
+/** Optional trailing window argument at position `i` (rounded); undefined if absent. */
+function winArg(
+  args: Node[],
+  arg: (i: number) => number,
+  i: number,
+): number | undefined {
+  return args.length > i ? Math.round(arg(i)) : undefined;
+}
+
+/** Covariance of the two argument series over the (optional) window at position `w`. */
+function pairCov(
+  at: (n: Node, p: number) => number,
+  args: Node[],
+  arg: (i: number) => number,
+  period: number,
+  w: number,
+): number {
+  const window = winArg(args, arg, w);
+  const xs = windowVals(at, args[0]!, window, period);
+  const ys = windowVals(at, args[1]!, window, period);
+  return sampleCov(xs, ys);
+}
+
+function mean(a: number[]): number {
+  return a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+}
+
+/** Sample variance (n−1). < 2 observations => 0. */
+function sampleVar(a: number[]): number {
+  const n = a.length;
+  if (n < 2) return 0;
+  const m = mean(a);
+  let s = 0;
+  for (const x of a) s += (x - m) * (x - m);
+  return s / (n - 1);
+}
+
+/** Sample covariance (n−1) over the shared length. < 2 observations => 0. */
+function sampleCov(x: number[], y: number[]): number {
+  const n = Math.min(x.length, y.length);
+  if (n < 2) return 0;
+  const mx = mean(x);
+  const my = mean(y);
+  let s = 0;
+  for (let i = 0; i < n; i++) s += (x[i]! - mx) * (y[i]! - my);
+  return s / (n - 1);
+}
+
+/** Clamp to [-1, 1] (guards floating-point drift on a correlation). */
+function clampUnit(v: number): number {
+  return Math.min(1, Math.max(-1, v));
+}
+
+/** Arity check allowing a min..max range (for the optional window argument). */
+function requireArgs2(name: string, args: Node[], lo: number, hi: number): void {
+  if (args.length < lo || args.length > hi)
+    throw new FormulaError(`${name}() expects ${lo}–${hi} argument(s), got ${args.length}`);
 }
 
 /** Collapse non-finite results (NaN, ±Infinity) to 0 so the engine stays total. */

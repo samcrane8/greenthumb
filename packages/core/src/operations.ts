@@ -13,6 +13,7 @@ import { findPriceModel, generatePrice } from "./commodities.js";
 import { renameInExpression } from "./formula.js";
 import { newId } from "./id.js";
 import type {
+  CapitalStack,
   ChangeSummary,
   Chart,
   ChartSeries,
@@ -25,6 +26,7 @@ import type {
   LineItem,
   Model,
   Scenario,
+  Tranche,
   Unit,
   ValidationIssue,
   Widget,
@@ -61,6 +63,8 @@ export interface AddLineItemInput {
   definition: ItemDefinition;
   section?: string;
   notes?: string;
+  /** Optional display magnitude (e.g. 1_000_000 for $millions). Presentation only. */
+  scale?: number;
 }
 
 export function addLineItem(model: Model, input: AddLineItemInput): OpResult {
@@ -98,6 +102,52 @@ export function removeItem(model: Model, itemId: string): OpResult {
   const removed = next.items.find((i) => i.id === itemId);
   next.items = next.items.filter((i) => i.id !== itemId);
   return finalize(next, { op: "remove", entity: "item", id: itemId, name: removed?.name });
+}
+
+/**
+ * Replay observed actuals into an item: replace its definition with an input
+ * series of `values`, so real history drives the item and everything downstream.
+ * The prior definition is stashed in `replacedDefinition` so it can be restored.
+ * Validate-on-write still runs — if the replayed values break A = L + E, the
+ * caller sees the integrity issue rather than a silent break.
+ */
+export function replayActuals(model: Model, itemId: string, values: (number | null)[]): OpResult {
+  const next = clone(model);
+  const item = next.items.find((i) => i.id === itemId);
+  if (!item) throw new Error(`No item with id ${itemId}`);
+  // Preserve the original definition (only the first time — don't clobber it on re-replay).
+  if (item.replacedDefinition === undefined) item.replacedDefinition = item.definition;
+  item.definition = { kind: "input", values };
+  return finalize(next, {
+    op: "update",
+    entity: "item",
+    id: item.id,
+    name: item.name,
+    fields: ["definition"],
+    detail: `replayed from ${values.filter((v) => v !== null && v !== undefined).length} actual(s)`,
+  });
+}
+
+/**
+ * Restore an item that was replayed back to its preserved original definition.
+ */
+export function restoreItemDefinition(model: Model, itemId: string): OpResult {
+  const next = clone(model);
+  const item = next.items.find((i) => i.id === itemId);
+  if (!item) throw new Error(`No item with id ${itemId}`);
+  if (item.replacedDefinition === undefined) {
+    throw new Error(`Item ${itemId} has no replaced definition to restore`);
+  }
+  item.definition = item.replacedDefinition;
+  delete item.replacedDefinition;
+  return finalize(next, {
+    op: "update",
+    entity: "item",
+    id: item.id,
+    name: item.name,
+    fields: ["definition"],
+    detail: "restored original definition",
+  });
 }
 
 // --- Drivers ---------------------------------------------------------------
@@ -261,6 +311,24 @@ export function setGranularity(model: Model, granularity: Granularity): OpResult
   });
 }
 
+/**
+ * Set the timeline start date (ISO `YYYY-MM-DD`). Because commodity price
+ * generation is the one place calendar dates are read, this regenerates any
+ * commodity-bound drivers so their series re-anchor to the new window.
+ */
+export function setTimelineStart(model: Model, start: string): OpResult {
+  const next = clone(model);
+  const before = next.timeline.start;
+  next.timeline.start = start;
+  regenerateBoundDrivers(next);
+  return finalize(next, {
+    op: "update",
+    entity: "timeline",
+    fields: ["start"],
+    detail: `start ${before} -> ${start}`,
+  });
+}
+
 // --- Commodity pricing -----------------------------------------------------
 
 /**
@@ -379,6 +447,16 @@ function cascadeRename(next: Model, oldName: string, newName: string): void {
   for (const item of next.items) {
     if (item.definition.kind === "formula") {
       item.definition.expression = renameInExpression(item.definition.expression, renames);
+    }
+  }
+  // Capital-stack references are by name too — keep them in lockstep with the rename.
+  const stack = next.capitalStack;
+  if (stack) {
+    stack.assetRefs = stack.assetRefs.map((r) => (r === oldName ? newName : r));
+    for (const t of stack.tranches) {
+      if (t.notionalRef === oldName) t.notionalRef = newName;
+      if (t.rateRef === oldName) t.rateRef = newName;
+      if (t.sharesRef === oldName) t.sharesRef = newName;
     }
   }
 }
@@ -583,4 +661,78 @@ export function reorderDashboard(model: Model, orderedIds: string[]): OpResult {
   }
   dash.widgets = orderedIds.map((id) => byId.get(id)!);
   return finalize(next, { op: "update", entity: "widget", fields: ["order"], detail: "reordered dashboard" });
+}
+
+// --- Capital stack ---------------------------------------------------------
+
+/** Ensure a capital stack exists on the candidate, returning it. */
+function ensureStack(model: Model): CapitalStack {
+  if (!model.capitalStack) model.capitalStack = { assetRefs: [], tranches: [] };
+  return model.capitalStack;
+}
+
+export interface AddTrancheInput {
+  name: string;
+  kind: Tranche["kind"];
+  seniority: number;
+  notionalRef?: string;
+  rate?: number;
+  rateRef?: string;
+  sharesRef?: string;
+  conversionPrice?: number;
+  convertAsEquity?: number;
+}
+
+export function addTranche(model: Model, input: AddTrancheInput): OpResult {
+  const next = clone(model);
+  const stack = ensureStack(next);
+  const tranche: Tranche = { id: newId("trn"), ...input };
+  stack.tranches = [...stack.tranches, tranche];
+  return finalize(next, {
+    op: "add",
+    entity: "tranche",
+    id: tranche.id,
+    name: tranche.name,
+    detail: `${tranche.kind} @ seniority ${tranche.seniority}`,
+  });
+}
+
+export function updateTranche(
+  model: Model,
+  trancheId: string,
+  patch: Partial<Omit<Tranche, "id">>,
+): OpResult {
+  const next = clone(model);
+  const tranche = next.capitalStack?.tranches.find((t) => t.id === trancheId);
+  if (!tranche) throw new Error(`No tranche with id ${trancheId}`);
+  Object.assign(tranche, patch);
+  return finalize(next, {
+    op: "update",
+    entity: "tranche",
+    id: tranche.id,
+    name: tranche.name,
+    fields: Object.keys(patch),
+  });
+}
+
+export function removeTranche(model: Model, trancheId: string): OpResult {
+  const next = clone(model);
+  const removed = next.capitalStack?.tranches.find((t) => t.id === trancheId);
+  if (next.capitalStack) {
+    next.capitalStack.tranches = next.capitalStack.tranches.filter((t) => t.id !== trancheId);
+  }
+  return finalize(next, { op: "remove", entity: "tranche", id: trancheId, name: removed?.name });
+}
+
+/** Set the asset references the stack's claims are paid from. */
+export function setCapitalStackAssets(model: Model, assetRefs: string[]): OpResult {
+  const next = clone(model);
+  const stack = ensureStack(next);
+  stack.assetRefs = assetRefs;
+  return finalize(next, {
+    op: "update",
+    entity: "capital_stack",
+    fields: ["assetRefs"],
+    detail: assetRefs.join(", "),
+  });
 }

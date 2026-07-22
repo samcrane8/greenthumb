@@ -7,6 +7,7 @@ import { StatementGrid } from '@/components/StatementGrid'
 import { DashboardView } from '@/components/DashboardView'
 import { DriverPanel } from '@/components/DriverPanel'
 import { CommodityScenarioPanel } from '@/components/CommodityScenarioPanel'
+import { CapitalStackPanel } from '@/components/CapitalStackPanel'
 import { api } from '@/lib/api'
 import { useWorkspace } from '@/workspace/WorkspaceContext'
 import { cn } from '@/lib/utils'
@@ -132,6 +133,7 @@ export default function WorkspacePage() {
         </div>
 
         <div className="space-y-5">
+          <CapitalStackPanel />
           <CommodityScenarioPanel />
           <DriverPanel model={model} onSetScalar={setScalar} busy={busy} />
         </div>

@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Cloud, HardDrive, Palette, Plug, User } from 'lucide-react'
+import { Cloud, Database, HardDrive, Palette, Plug, User } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +11,7 @@ const SECTIONS: { to: string; label: string; icon: LucideIcon }[] = [
   { to: 'preferences', label: 'Preferences', icon: Palette },
   { to: 'profile', label: 'Profile', icon: User },
   { to: 'cloud', label: 'Cloud connection', icon: Cloud },
+  { to: 'data-sources', label: 'Data sources', icon: Database },
   { to: 'mcp', label: 'Connect MCP', icon: Plug },
 ]
 

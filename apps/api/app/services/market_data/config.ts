@@ -16,6 +16,7 @@ const CONFIG_PATH = env.get('PROVIDERS_CONFIG_PATH', app.makePath('storage/provi
 /** Map a provider id to its env var name (env takes precedence over the file). */
 const ENV_KEYS: Record<string, string> = {
   alphavantage: 'ALPHAVANTAGE_API_KEY',
+  fred: 'FRED_API_KEY',
 }
 
 async function readFileConfig(): Promise<Record<string, string>> {

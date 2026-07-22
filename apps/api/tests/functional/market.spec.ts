@@ -49,11 +49,20 @@ test.group('Market-data endpoints', (group) => {
     res.assertStatus(200)
     const ids = res.body().map((p: any) => p.id)
     // Yahoo is the keyless default; Stooq was removed (broken upstream).
-    assert.includeMembers(ids, ['yahoo', 'alphavantage', 'demo', STUB_ID])
+    assert.includeMembers(ids, ['yahoo', 'alphavantage', 'fred', 'demo', STUB_ID])
     assert.notInclude(ids, 'stooq')
     const yahoo = res.body().find((p: any) => p.id === 'yahoo')
     assert.isFalse(yahoo.requiresKey)
     assert.isTrue(yahoo.configured, 'keyless provider is always configured')
+    // FRED is a keyed macro/econ provider.
+    const fred = res.body().find((p: any) => p.id === 'fred')
+    assert.isTrue(fred.requiresKey, 'FRED requires an API key')
+  })
+
+  test('a keyed provider with no key configured errors clearly', async ({ client, assert }) => {
+    const res = await client.get('/api/market/M2SL/history').qs({ provider: 'fred' })
+    res.assertStatus(400)
+    assert.match(res.body().error, /key/i)
   })
 
   test('the keyless default provider is yahoo', async ({ assert }) => {

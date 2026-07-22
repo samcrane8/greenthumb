@@ -3,13 +3,15 @@ import { periodDate, type Timeline } from '@greenthumb/core'
 import { registerProvider, type PricePoint } from './provider.js'
 import { yahooProvider } from './yahoo_provider.js'
 import { alphaVantageProvider } from './alphavantage_provider.js'
+import { fredProvider } from './fred_provider.js'
 import { demoProvider } from './demo_provider.js'
 
 // Register the built-in providers once at import time. Yahoo is the keyless
-// default (see DEFAULT_PROVIDER). Stooq was removed after its public CSV
-// endpoints broke upstream (quote 404s; history serves a JS bot challenge).
+// default (see DEFAULT_PROVIDER). Alpha Vantage (equities) and FRED (macro/econ)
+// are BYO-key. Stooq was removed after its public CSV endpoints broke upstream.
 registerProvider(yahooProvider)
 registerProvider(alphaVantageProvider)
+registerProvider(fredProvider)
 registerProvider(demoProvider)
 
 export * from './provider.js'

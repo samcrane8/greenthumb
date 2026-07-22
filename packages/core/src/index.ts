@@ -40,6 +40,7 @@ export {
   type ChartData,
   type ChartDataSeries,
 } from "./outputs.js";
+export { renderDashboardHtml, type RenderDashboardOptions } from "./export.js";
 export {
   analyzeCapitalStack,
   type CapitalStackAnalysis,

@@ -53,6 +53,7 @@ router
     router.get('/models/:id/validate', [ModelsController, 'validate'])
     router.get('/models/:id/compute', [ModelsController, 'compute'])
     router.get('/models/:id/statement', [ModelsController, 'statement'])
+    router.get('/models/:id/export', [ModelsController, 'exportDashboard'])
     router.get('/models/:id/charts/:chartId/data', [ModelsController, 'chartData'])
     router.get('/models/:id/compare', [ModelsController, 'compare'])
     router.post('/models/:id/snapshot', [ModelsController, 'snapshot'])

@@ -40,6 +40,25 @@ test.group('Charts & dashboard endpoints', () => {
     res.assertStatus(201)
   })
 
+  test('export returns a self-contained HTML document for the dashboard', async ({ client, assert }) => {
+    const id = await createTreasury(client)
+    const res = await client.get(`/api/models/${id}/export`).qs({ format: 'html' })
+    res.assertStatus(200)
+    assert.include(res.headers()['content-type'], 'text/html')
+    const html = res.text()
+    assert.match(html, /^<!doctype html>/)
+    assert.include(html, '<svg', 'charts render as inline SVG')
+    assert.include(html, '<table>', 'statement renders a table')
+    assert.notInclude(html, '<script', 'no scripts in the document')
+  })
+
+  test('export rejects an unsupported format', async ({ client, assert }) => {
+    const id = await createTreasury(client)
+    const res = await client.get(`/api/models/${id}/export`).qs({ format: 'xlsx' })
+    res.assertStatus(400)
+    assert.match(res.body().error, /format/i)
+  })
+
   test('chart data is derived and reflects the scenario', async ({ client, assert }) => {
     const id = await createTreasury(client)
     const model = (await client.get(`/api/models/${id}`)).body()

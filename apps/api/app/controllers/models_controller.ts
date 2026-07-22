@@ -4,6 +4,7 @@ import {
   computeModel,
   getStatement,
   getChartData,
+  renderDashboardHtml,
   analyzeCapitalStack,
   compareScenarios,
   validateModel,
@@ -179,6 +180,26 @@ export default class ModelsController {
     if (!scenario) return response.badRequest({ error: 'Unknown scenario' })
     const kind = (request.input('kind', 'income') as StatementKind)
     return response.ok(getStatement(model, scenario, kind))
+  }
+
+  /**
+   * GET /api/models/:id/export?scenario=&format=html — render the dashboard to a
+   * self-contained HTML document (thin wrapper over core's pure renderer).
+   */
+  async exportDashboard({ params, request, response }: HttpContext) {
+    const model = await modelStore().get(params.id)
+    if (!model) return response.notFound({ error: 'Model not found' })
+    const scenario = this.#resolveScenario(model, request.input('scenario'))
+    if (!scenario) return response.badRequest({ error: 'Unknown scenario' })
+    const format = request.input('format', 'html')
+    if (format !== 'html') {
+      return response.badRequest({ error: `Unsupported export format "${format}" (v1 supports "html")` })
+    }
+    const html = renderDashboardHtml(model, scenario)
+    const filename = `${model.meta.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${scenario.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.html`
+    response.header('Content-Type', 'text/html; charset=utf-8')
+    response.header('Content-Disposition', `attachment; filename="${filename}"`)
+    return response.send(html)
   }
 
   /** GET /api/models/:id/charts/:chartId/data?scenario=:id — derived chart series. */

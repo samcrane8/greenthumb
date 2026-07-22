@@ -47,6 +47,26 @@ async function call(
   return json
 }
 
+/** GET a text/* endpoint (e.g. the HTML export) and return the raw body. */
+async function callText(path: string, query: Record<string, string | undefined> = {}): Promise<string> {
+  const url = new URL(`${API_URL}/api${path}`)
+  for (const [k, v] of Object.entries(query)) if (v !== undefined) url.searchParams.set(k, v)
+  const res = await fetch(url, {
+    headers: { ...(API_KEY ? { authorization: `Bearer ${API_KEY}` } : {}) },
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    let msg: string = res.statusText
+    try {
+      msg = (JSON.parse(text) as { error?: string })?.error ?? msg
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(`API ${res.status}: ${msg}`)
+  }
+  return text
+}
+
 /** Wrap a JSON result as MCP text content plus a short human summary. */
 function result(summary: string, data: unknown) {
   return {
@@ -575,6 +595,32 @@ server.registerTool(
         query: { scenario: scenarioId },
       })
       return result(`Chart data for ${chartId}.`, data)
+    } catch (err) {
+      return fail(err)
+    }
+  }
+)
+
+server.registerTool(
+  'export_dashboard',
+  {
+    title: 'Export dashboard (HTML)',
+    description:
+      "Render a model's dashboard for a scenario to a SELF-CONTAINED HTML document — headline stat tiles, charts as inline SVG, statement/KPI tables, and note prose (markdown). It is offline (no external assets), deterministic, and print-to-PDF ready. Returns the HTML string to save as an .html file and open or print. This is the shareable analysis deliverable; get_output/get_chart_data return raw data instead.",
+    inputSchema: { modelId: z.string(), scenarioId: z.string().optional() },
+  },
+  async ({ modelId, scenarioId }) => {
+    try {
+      const html = await callText(`/models/${modelId}/export`, { scenario: scenarioId, format: 'html' })
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Exported dashboard for model ${modelId} (${html.length} chars of self-contained HTML — save as .html, then open or print to PDF).`,
+          },
+          { type: 'text' as const, text: html },
+        ],
+      }
     } catch (err) {
       return fail(err)
     }
